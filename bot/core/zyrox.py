@@ -56,9 +56,9 @@ class zyrox(commands.AutoShardedBot):
         guild = self.guilds[0]
         try:
             config = await getConfig(guild.id)
-            prefix = config.get("prefix", "!")
+            prefix = config.get("prefix", ">")  # <--- CHANGED to ">"
         except:
-            prefix = "!"
+            prefix = ">"  # <--- CHANGED to ">"
         user_count = sum(g.member_count or 0 for g in self.guilds)
         guild_count = len(self.guilds)
         statuses = [
@@ -90,9 +90,9 @@ class zyrox(commands.AutoShardedBot):
                 async with db.execute("SELECT id FROM np WHERE id = ?", (message.author.id,)) as cursor:
                     row = await cursor.fetchone()
             if row:
-                return commands.when_mentioned_or('!', '')(self, message)
+                return commands.when_mentioned_or('>', '')(self, message)  # <--- CHANGED to ">"
             else:
-                return commands.when_mentioned_or('!')(self, message)
+                return commands.when_mentioned_or('>')(self, message)  # <--- CHANGED to ">"
 
     async def on_message_edit(self, before, after):
         ctx: Context = await self.get_context(after, cls=Context)
