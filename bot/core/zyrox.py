@@ -1,15 +1,6 @@
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║                                                                  ║
-# ║   ░█▀▀░█▀█░█▀▄░█▀▀░█░█   ░█▀▄░█▀▀░█░█░█▀▀                     ║
-# ║   ░█░░░█░█░█░█░█▀▀░▄▀▄   ░█░█░█▀▀░▀▄▀░▀▀█                     ║
-# ║   ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀   ░▀▀░░▀▀▀░░▀░░▀▀▀                     ║
-# ║                                                                  ║
 # ║            © 2026 Bezms — All Rights Reserved                   ║
-# ║                                                                  ║
 # ║   discord  ──  https://discord.gg/9nKHrnWZqV                    ║
-# ║   website  ──  https://your-website.com                         ║
-# ║   github   ──  https://github.com/YOUR_USERNAME                 ║
-# ║                                                                  ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 from __future__ import annotations
@@ -45,7 +36,6 @@ class zyrox(commands.AutoShardedBot):
     async def setup_hook(self):
         # Load cogs by importing the setup function directly
         try:
-            # Import the setup function from cogs.__init__
             import cogs
             if hasattr(cogs, 'setup'):
                 await cogs.setup(self)
