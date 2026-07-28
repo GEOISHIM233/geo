@@ -31,8 +31,7 @@ class zyrox(commands.AutoShardedBot):
                          sync_commands_debug=True,
                          sync_commands=True,
                          shard_count=1)
-        # REMOVE THE DUPLICATE clear COMMAND
-        # This prevents the "CommandRegistrationError: The command clear is already an existing command"
+        # REMOVE the duplicate clear command (prevents CommandRegistrationError)
         self.remove_command("clear")
         self.status_index = 0
 
