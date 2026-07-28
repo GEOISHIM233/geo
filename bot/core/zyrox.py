@@ -17,6 +17,7 @@ from discord.ext import commands, tasks
 import discord
 import aiosqlite
 import os
+import importlib
 from utils.config import OWNER_IDS, BotName
 from utils import getConfig
 from .Context import Context
@@ -42,12 +43,18 @@ class zyrox(commands.AutoShardedBot):
         self.status_index = 0
 
     async def setup_hook(self):
-        # Load the main cogs extension (which runs your __init__.py)
+        # Load cogs by importing the setup function directly
         try:
-            await self.load_extension("cogs")
-            print(Fore.GREEN + Style.BRIGHT + "Loaded cogs extension successfully!")
+            # Import the setup function from cogs.__init__
+            import cogs
+            if hasattr(cogs, 'setup'):
+                await cogs.setup(self)
+                print(Fore.GREEN + Style.BRIGHT + "Loaded cogs via setup() successfully!")
+            else:
+                print(Fore.RED + Style.BRIGHT + "cogs.__init__ has no setup() function!")
         except Exception as e:
             print(Fore.RED + Style.BRIGHT + f"Failed to load cogs: {e}")
+        
         print(Fore.GREEN + Style.BRIGHT + "*" * 20)
         self.status_task.start()
 
