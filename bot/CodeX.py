@@ -1,15 +1,6 @@
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║                                                                  ║
-# ║   ░█▀▀░█▀█░█▀▄░█▀▀░█░█   ░█▀▄░█▀▀░█░█░█▀▀                     ║
-# ║   ░█░░░█░█░█░█░█▀▀░▄▀▄   ░█░█░█▀▀░▀▄▀░▀▀█                     ║
-# ║   ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀   ░▀▀░░▀▀▀░░▀░░▀▀▀                     ║
-# ║                                                                  ║
 # ║            © 2026 Bezms — All Rights Reserved                   ║
-# ║                                                                  ║
 # ║   discord  ──  https://discord.gg/9nKHrnWZqV                    ║
-# ║   youtube  ──  https://youtube.com/@Bezms                       ║
-# ║   github   ──  https://github.com/YOUR_USERNAME                 ║
-# ║                                                                  ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
 import os
@@ -26,6 +17,12 @@ from utils.emoji import SUCCESS, ERROR, TICK, CROSS
 from utils.sync_emojis import run_sync
 import jishaku
 
+# --- FastAPI imports ---
+from fastapi import FastAPI, HTTPException, Header
+from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
+import threading
+
 os.environ["JISHAKU_NO_DM_TRACEBACK"] = "False"
 os.environ["JISHAKU_HIDE"] = "True"
 os.environ["JISHAKU_NO_UNDERSCORE"] = "True"
@@ -35,6 +32,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
+API_ENABLED = os.getenv("API_ENABLED", "false").lower() == "true"
+DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
 
 # --- Configuration (replace with your channel IDs) ---
 SERVER_COUNT_CHANNEL_ID = 1419729255977189467
@@ -44,14 +43,10 @@ LOG_CHANNEL_ID = 1396794297386532978
 client = zyrox()
 tree = client.tree
 
-# --- Disable Lavalink completely ---
-# If LAVALINK_HOST is empty or not set, set it to "disabled" so the bot skips it
-LAVALINK_HOST = os.getenv("LAVALINK_HOST", "")
-if not LAVALINK_HOST or LAVALINK_HOST == '""' or LAVALINK_HOST == 'disabled':
-    os.environ["LAVALINK_HOST"] = "disabled"
-    print("⚠️ Lavalink disabled. Music commands will not work.")
-else:
-    print(f"✅ Lavalink configured with host: {LAVALINK_HOST}")
+# --- Completely disable Lavalink ---
+os.environ["LAVALINK_HOST"] = ""
+os.environ["LAVALINK_PORT"] = "0"
+print("⚠️ Lavalink disabled. Music commands will not work.")
 
 async def update_stats():
     await client.wait_until_ready()
@@ -87,6 +82,7 @@ async def new_setup_hook():
     client.loop.create_task(update_stats())
 client.setup_hook = new_setup_hook
 
+# --- Event Handlers ---
 @client.event
 async def on_ready():
     await client.wait_until_ready()
@@ -107,7 +103,6 @@ async def on_ready():
     print("Bot Name: Bezms Bot")
     print(f"Support Server: https://discord.gg/9nKHrnWZqV")
     await run_sync(TOKEN)
-    # Force sync again
     try:
         synced = await client.tree.sync()
         print(f"✅ Force sync: {len(synced)} slash commands synced")
@@ -150,6 +145,69 @@ async def on_guild_remove(guild: discord.Guild):
     log = client.get_channel(LOG_CHANNEL_ID)
     if log:
         await log.send(f"Removed from: **{guild.name}** (`{guild.id}`)")
+
+# --- FastAPI Server ---
+if API_ENABLED:
+    app = FastAPI(title="Bezms Bot API", version="1.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @app.get("/")
+    async def root():
+        return {"status": "online", "bot": client.user.name if client.user else "Unknown"}
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    @app.get("/guilds")
+    async def get_guilds(api_key: str = Header(...)):
+        if api_key != DASHBOARD_API_KEY:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        if not client.is_ready():
+            return {"guilds": []}
+        guilds = []
+        for g in client.guilds:
+            guilds.append({
+                "id": str(g.id),
+                "name": g.name,
+                "icon": g.icon.url if g.icon else None,
+                "member_count": g.member_count,
+                "owner_id": str(g.owner_id)
+            })
+        return {"guilds": guilds}
+
+    @app.get("/guild/{guild_id}")
+    async def get_guild(guild_id: str, api_key: str = Header(...)):
+        if api_key != DASHBOARD_API_KEY:
+            raise HTTPException(status_code=401, detail="Invalid API key")
+        guild = client.get_guild(int(guild_id))
+        if not guild:
+            raise HTTPException(status_code=404, detail="Guild not found")
+        return {
+            "id": str(guild.id),
+            "name": guild.name,
+            "icon": guild.icon.url if guild.icon else None,
+            "member_count": guild.member_count,
+            "owner_id": str(guild.owner_id),
+            "channels": [{"id": str(c.id), "name": c.name, "type": str(c.type)} for c in guild.channels],
+            "roles": [{"id": str(r.id), "name": r.name, "color": r.color.value} for r in guild.roles]
+        }
+
+    def run_api():
+        port = int(os.environ.get("PORT", 8000))
+        uvicorn.run(app, host="0.0.0.0", port=port)
+
+    api_thread = threading.Thread(target=run_api, daemon=True)
+    api_thread.start()
+    print(f"✅ API server started on port {os.environ.get('PORT', 8000)}")
+else:
+    print("⚠️ API is disabled (API_ENABLED not set to true)")
 
 if __name__ == "__main__":
     try:
