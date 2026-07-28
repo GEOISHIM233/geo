@@ -78,14 +78,13 @@ class zyrox(commands.AutoShardedBot):
         guild = self.guilds[0]
         try:
             config = await getConfig(guild.id)
-            prefix = config.get("prefix", "/")
+            prefix = config.get("prefix", "!")
         except:
-            prefix = "/"
+            prefix = "!"
 
         user_count = sum(g.member_count or 0 for g in self.guilds)
         guild_count = len(self.guilds)
 
-        # Rotating statuses (Online, Idle, DND) with different activities
         combined_rotations = [
             (discord.Status.online, discord.ActivityType.playing, f"{prefix}help | Bezms Bot"),
             (discord.Status.idle, discord.ActivityType.watching, f"{user_count} users"),
@@ -132,9 +131,9 @@ class zyrox(commands.AutoShardedBot):
                 async with db.execute("SELECT id FROM np WHERE id = ?", (message.author.id,)) as cursor:
                     row = await cursor.fetchone()
             if row:
-                return commands.when_mentioned_or('/', '')(self, message)
+                return commands.when_mentioned_or('!', '')(self, message)
             else:
-                return commands.when_mentioned_or('/')(self, message)
+                return commands.when_mentioned_or('!')(self, message)
 
     async def on_message_edit(self, before, after):
         ctx: Context = await self.get_context(after, cls=Context)
