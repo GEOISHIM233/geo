@@ -4,11 +4,11 @@
 # ║   ░█░░░█░█░█░█░█▀▀░▄▀▄   ░█░█░█▀▀░▀▄▀░▀▀█                     ║
 # ║   ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀   ░▀▀░░▀▀▀░░▀░░▀▀▀                     ║
 # ║                                                                  ║
-# ║            © 2026 CodeX Devs — All Rights Reserved              ║
+# ║            © 2026 Bezms — All Rights Reserved                   ║
 # ║                                                                  ║
-# ║   discord  ──  https://discord.gg/codexdev                      ║
-# ║   youtube  ──  https://youtube.com/@CodeXDevs                   ║
-# ║   github   ──  https://github.com/RayExo                        ║
+# ║   discord  ──  https://discord.gg/9nKHrnWZqV                    ║
+# ║   website  ──  https://your-website.com                         ║
+# ║   github   ──  https://github.com/YOUR_USERNAME                 ║
 # ║                                                                  ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
@@ -28,6 +28,7 @@ from .Context import Context
 from colorama import Fore, Style, init
 import importlib
 import inspect
+import random
 
 init(autoreset=True)
 
@@ -44,8 +45,6 @@ class zyrox(commands.AutoShardedBot):
         super().__init__(command_prefix=self.get_prefix,
                          case_insensitive=True,
                          intents=intents,
-                         # The status is already set to Do Not Disturb here
-                         status=discord.Status.do_not_disturb,
                          strip_after_prefix=True,
                          owner_ids=OWNER_IDS,
                          allowed_mentions=discord.AllowedMentions(
@@ -54,7 +53,8 @@ class zyrox(commands.AutoShardedBot):
                          sync_commands=True,
                          shard_count=1)
         self.status_index = 0
-        self.status_list = []
+        self.activity_list = []
+        self.status_rotations = []
 
     async def setup_hook(self):
         await self.load_extensions()
@@ -75,27 +75,34 @@ class zyrox(commands.AutoShardedBot):
         if not self.guilds:
             return
 
-        guild = self.guilds[0]  # Use first available guild for prefix
+        guild = self.guilds[0]
         try:
             config = await getConfig(guild.id)
-            prefix = config.get("prefix", ">")
+            prefix = config.get("prefix", "/")
         except:
-            prefix = ">"
+            prefix = "/"
 
         user_count = sum(g.member_count or 0 for g in self.guilds)
         guild_count = len(self.guilds)
 
-        self.status_list = [
-            (discord.ActivityType.playing, f"{prefix}help | Security in your Server"),
-            (discord.ActivityType.watching, f"{user_count} users"),
-            (discord.ActivityType.watching, f"{guild_count} servers"),
-            (discord.ActivityType.listening, "Killing Nukers"),
-            (discord.ActivityType.playing, f"Protector {BotName}"),
+        # Rotating statuses (Online, Idle, DND) with different activities
+        combined_rotations = [
+            (discord.Status.online, discord.ActivityType.playing, f"{prefix}help | Bezms Bot"),
+            (discord.Status.idle, discord.ActivityType.watching, f"{user_count} users"),
+            (discord.Status.do_not_disturb, discord.ActivityType.listening, "Bezms"),
+            (discord.Status.online, discord.ActivityType.playing, f"Protector {BotName}"),
+            (discord.Status.idle, discord.ActivityType.competing, "Anti-Nuke Active"),
+            (discord.Status.do_not_disturb, discord.ActivityType.watching, f"{guild_count} servers"),
         ]
 
-        current = self.status_list[self.status_index % len(self.status_list)]
-        # This task only changes the activity, not the online status (dnd, idle, etc.)
-        await self.change_presence(activity=discord.Activity(type=current[0], name=current[1]))
+        current = combined_rotations[self.status_index % len(combined_rotations)]
+        status, activity_type, activity_name = current
+
+        await self.change_presence(
+            status=status,
+            activity=discord.Activity(type=activity_type, name=activity_name)
+        )
+
         self.status_index += 1
 
     async def send_raw(self, channel_id: int, content: str, **kwargs) -> typing.Optional[discord.Message]:
@@ -125,9 +132,9 @@ class zyrox(commands.AutoShardedBot):
                 async with db.execute("SELECT id FROM np WHERE id = ?", (message.author.id,)) as cursor:
                     row = await cursor.fetchone()
             if row:
-                return commands.when_mentioned_or('?', '')(self, message)
+                return commands.when_mentioned_or('/', '')(self, message)
             else:
-                return commands.when_mentioned_or('')(self, message)
+                return commands.when_mentioned_or('/')(self, message)
 
     async def on_message_edit(self, before, after):
         ctx: Context = await self.get_context(after, cls=Context)
