@@ -78,9 +78,11 @@ async def sync_commands():
     try:
         synced = await client.tree.sync()
         all_commands = list(client.commands)
-        print(f"Synced Total {len(all_commands)} Client Commands and {len(synced)} Slash Commands")
+        print(f"✅ Synced Total {len(all_commands)} Client Commands and {len(synced)} Slash Commands")
+        if len(synced) == 0:
+            print("⚠️ WARNING: 0 slash commands synced! Check if cogs are loading properly.")
     except Exception as e:
-        print(f"Error syncing command tree: {e}")
+        print(f"❌ Error syncing command tree: {e}")
 
 # --- Override setup_hook to schedule tasks properly ---
 original_setup_hook = client.setup_hook
@@ -117,6 +119,13 @@ async def on_ready():
 
     # Sync application emojis on startup
     await run_sync(TOKEN)
+    
+    # Force sync slash commands again after ready (ensures they appear)
+    try:
+        synced = await client.tree.sync()
+        print(f"✅ Force sync: {len(synced)} slash commands synced on ready")
+    except Exception as e:
+        print(f"❌ Failed to force sync slash commands: {e}")
 
 @client.event
 async def on_guild_join(guild: discord.Guild):
@@ -124,6 +133,13 @@ async def on_guild_join(guild: discord.Guild):
     log_channel = client.get_channel(LOG_CHANNEL_ID)
     if log_channel:
         await log_channel.send(f"Bezms Bot has been added to the server: **{guild.name}** (ID: `{guild.id}`)")
+    
+    # Sync commands when joining a new guild (helps commands appear faster)
+    try:
+        await client.tree.sync()
+        print(f"✅ Slash commands synced for new guild: {guild.name}")
+    except Exception as e:
+        print(f"❌ Failed to sync slash commands for new guild: {e}")
 
 @client.event
 async def on_command_completion(context: commands.Context) -> None:
