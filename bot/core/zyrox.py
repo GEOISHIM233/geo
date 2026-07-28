@@ -22,29 +22,33 @@ import asyncio
 import typing
 from typing import List
 import aiosqlite
+import os
 from utils.config import OWNER_IDS, BotName
 from utils import getConfig, updateConfig
 from .Context import Context
 from colorama import Fore, Style, init
 import importlib
 import inspect
-import os
 
 init(autoreset=True)
 
-# Load all cogs from the cogs folder
-extensions: List[str] = [
-    "cogs"
-]
-
-# Add individual subfolders if they exist
+# We no longer load the top-level "cogs" extension – we load subfolders directly.
+# This avoids the "clear already exists" conflict.
 cog_subfolders = [
     "commands",
     "events",
     "moderation",
     "economy",
     "fun",
-    "utility"
+    "utility",
+    "music",
+    "giveaway",
+    "ticket",
+    "antinuke",
+    "automod",
+    "levels",
+    "logging",
+    "welcome"
 ]
 
 class zyrox(commands.AutoShardedBot):
@@ -71,24 +75,33 @@ class zyrox(commands.AutoShardedBot):
         self.status_task.start()
 
     async def load_extensions(self):
-        # Load main extension
-        for extension in extensions:
-            try:
-                await self.load_extension(extension)
-                print(Fore.GREEN + Style.BRIGHT + f"Loaded extension: {extension}")
-            except Exception as e:
-                print(f"{Fore.RED}{Style.BRIGHT}Failed to load extension {extension}. {e}")
-        
-        # Load cogs from subfolders
+        # Load cogs from each subfolder
+        loaded_count = 0
         for subfolder in cog_subfolders:
             try:
                 await self.load_extension(f"cogs.{subfolder}")
                 print(Fore.GREEN + Style.BRIGHT + f"Loaded cogs from: cogs.{subfolder}")
+                loaded_count += 1
             except Exception as e:
-                # This is fine if the folder doesn't exist
+                # Skip if folder doesn't exist or has no __init__.py
                 pass
         
-        print(Fore.GREEN + Style.BRIGHT + "*" * 20)
+        # Also try loading individual .py files directly if they exist in cogs root
+        try:
+            import cogs
+            cogs_dir = os.path.dirname(cogs.__file__)
+            for file in os.listdir(cogs_dir):
+                if file.endswith(".py") and file != "__init__.py":
+                    try:
+                        await self.load_extension(f"cogs.{file[:-3]}")
+                        print(Fore.GREEN + Style.BRIGHT + f"Loaded cog: {file[:-3]}")
+                        loaded_count += 1
+                    except Exception as e:
+                        print(f"{Fore.YELLOW}Failed to load {file}: {e}")
+        except:
+            pass
+        
+        print(Fore.GREEN + Style.BRIGHT + f"* Loaded {loaded_count} cog(s) *")
 
     @tasks.loop(seconds=30)
     async def status_task(self):
