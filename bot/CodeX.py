@@ -91,6 +91,8 @@ async def on_ready():
     print(f"Logged in as: {client.user}")
     print(f"Connected to: {len(client.guilds)} guilds")
     print(f"Connected to: {len(client.users)} users")
+    print("Bot Name: Bezms Bot")
+    print(f"Support Server: https://discord.gg/9nKHrnWZqV")
 
     # Sync application emojis on startup
     await run_sync(TOKEN)
@@ -111,7 +113,7 @@ async def on_guild_join(guild: discord.Guild):
     # Log when the bot joins a server
     log_channel = client.get_channel(LOG_CHANNEL_ID)
     if log_channel:
-        await log_channel.send(f"{BRAND_NAME} has been added to the server: **{guild.name}** (ID: `{guild.id}`)")
+        await log_channel.send(f"Bezms Bot has been added to the server: **{guild.name}** (ID: `{guild.id}`)")
 
 @client.event
 async def on_command_completion(context: commands.Context) -> None:
@@ -148,7 +150,7 @@ async def on_guild_remove(guild: discord.Guild):
     # Log when the bot leaves a server
     log_channel = client.get_channel(LOG_CHANNEL_ID)
     if log_channel:
-        await log_channel.send(f"{BRAND_NAME} has been removed from the server: **{guild.name}** (ID: `{guild.id}`)")
+        await log_channel.send(f"Bezms Bot has been removed from the server: **{guild.name}** (ID: `{guild.id}`)")
 
 if __name__ == "__main__":
     try:
