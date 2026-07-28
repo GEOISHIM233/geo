@@ -4,11 +4,11 @@
 # ║   ░█░░░█░█░█░█░█▀▀░▄▀▄   ░█░█░█▀▀░▀▄▀░▀▀█                     ║
 # ║   ░▀▀▀░▀▀▀░▀▀░░▀▀▀░▀░▀   ░▀▀░░▀▀▀░░▀░░▀▀▀                     ║
 # ║                                                                  ║
-# ║            © 2026 CodeX Devs — All Rights Reserved              ║
+# ║            © 2026 Bezms — All Rights Reserved                   ║
 # ║                                                                  ║
-# ║   discord  ──  https://discord.gg/codexdev                      ║
-# ║   youtube  ──  https://youtube.com/@CodeXDevs                   ║
-# ║   github   ──  https://github.com/RayExo                        ║
+# ║   discord  ──  https://discord.gg/9nKHrnWZqV                    ║
+# ║   youtube  ──  https://youtube.com/@Bezms                       ║
+# ║   github   ──  https://github.com/YOUR_USERNAME                 ║
 # ║                                                                  ║
 # ╚══════════════════════════════════════════════════════════════════╝
 
