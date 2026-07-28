@@ -23,33 +23,14 @@ import typing
 from typing import List
 import aiosqlite
 import os
+import importlib
 from utils.config import OWNER_IDS, BotName
 from utils import getConfig, updateConfig
 from .Context import Context
 from colorama import Fore, Style, init
-import importlib
 import inspect
 
 init(autoreset=True)
-
-# We no longer load the top-level "cogs" extension – we load subfolders directly.
-# This avoids the "clear already exists" conflict.
-cog_subfolders = [
-    "commands",
-    "events",
-    "moderation",
-    "economy",
-    "fun",
-    "utility",
-    "music",
-    "giveaway",
-    "ticket",
-    "antinuke",
-    "automod",
-    "levels",
-    "logging",
-    "welcome"
-]
 
 class zyrox(commands.AutoShardedBot):
     def __init__(self, *arg, **kwargs):
@@ -71,37 +52,44 @@ class zyrox(commands.AutoShardedBot):
         self.status_rotations = []
 
     async def setup_hook(self):
-        await self.load_extensions()
+        await self.load_all_cogs()
         self.status_task.start()
 
-    async def load_extensions(self):
-        # Load cogs from each subfolder
-        loaded_count = 0
-        for subfolder in cog_subfolders:
-            try:
-                await self.load_extension(f"cogs.{subfolder}")
-                print(Fore.GREEN + Style.BRIGHT + f"Loaded cogs from: cogs.{subfolder}")
-                loaded_count += 1
-            except Exception as e:
-                # Skip if folder doesn't exist or has no __init__.py
-                pass
-        
-        # Also try loading individual .py files directly if they exist in cogs root
-        try:
-            import cogs
-            cogs_dir = os.path.dirname(cogs.__file__)
-            for file in os.listdir(cogs_dir):
+    async def load_all_cogs(self):
+        """Recursively load every .py file in the 'cogs' folder as a cog."""
+        cogs_dir = os.path.join(os.path.dirname(__file__), "..", "cogs")
+        if not os.path.exists(cogs_dir):
+            print(Fore.YELLOW + "cogs folder not found!")
+            return
+
+        loaded = 0
+        for root, dirs, files in os.walk(cogs_dir):
+            for file in files:
                 if file.endswith(".py") and file != "__init__.py":
+                    # Build the module path: cogs.subfolder.filename
+                    rel_path = os.path.relpath(root, cogs_dir)
+                    if rel_path == ".":
+                        module_path = f"cogs.{file[:-3]}"
+                    else:
+                        module_path = f"cogs.{rel_path.replace(os.sep, '.')}.{file[:-3]}"
+                    
                     try:
-                        await self.load_extension(f"cogs.{file[:-3]}")
-                        print(Fore.GREEN + Style.BRIGHT + f"Loaded cog: {file[:-3]}")
-                        loaded_count += 1
+                        # Load the cog
+                        await self.load_extension(module_path)
+                        print(Fore.GREEN + Style.BRIGHT + f"Loaded cog: {module_path}")
+                        loaded += 1
+                    except commands.ExtensionError as e:
+                        # If it's a duplicate, skip; otherwise warn
+                        if isinstance(e, commands.ExtensionAlreadyLoaded):
+                            pass
+                        elif "CommandRegistrationError" in str(e):
+                            print(Fore.YELLOW + f"Skipped {module_path} (duplicate command)")
+                        else:
+                            print(Fore.RED + f"Failed to load {module_path}: {e}")
                     except Exception as e:
-                        print(f"{Fore.YELLOW}Failed to load {file}: {e}")
-        except:
-            pass
-        
-        print(Fore.GREEN + Style.BRIGHT + f"* Loaded {loaded_count} cog(s) *")
+                        print(Fore.RED + f"Unexpected error loading {module_path}: {e}")
+
+        print(Fore.GREEN + Style.BRIGHT + f"* Loaded {loaded} cog(s) *")
 
     @tasks.loop(seconds=30)
     async def status_task(self):
