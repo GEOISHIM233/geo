@@ -73,6 +73,27 @@ async def update_stats():
             print(f"Error updating stats: {e}")
         await asyncio.sleep(600)  # Update every 10 minutes
 
+async def sync_commands():
+    await client.wait_until_ready()
+    try:
+        synced = await client.tree.sync()
+        all_commands = list(client.commands)
+        print(f"Synced Total {len(all_commands)} Client Commands and {len(synced)} Slash Commands")
+    except Exception as e:
+        print(f"Error syncing command tree: {e}")
+
+# --- Override setup_hook to schedule tasks properly ---
+original_setup_hook = client.setup_hook
+
+async def new_setup_hook():
+    # Call the original setup_hook (loads cogs, starts status task)
+    await original_setup_hook()
+    # Now schedule our background tasks
+    client.loop.create_task(sync_commands())
+    client.loop.create_task(update_stats())
+
+client.setup_hook = new_setup_hook
+
 # --- Event Handlers ---
 @client.event
 async def on_ready():
@@ -96,17 +117,6 @@ async def on_ready():
 
     # Sync application emojis on startup
     await run_sync(TOKEN)
-
-async def sync_commands():
-    try:
-        synced = await client.tree.sync()
-        all_commands = list(client.commands)
-        print(f"Synced Total {len(all_commands)} Client Commands and {len(synced)} Slash Commands")
-    except Exception as e:
-        print(f"Error syncing command tree: {e}")
-
-client.loop.create_task(sync_commands())
-client.loop.create_task(update_stats())
 
 @client.event
 async def on_guild_join(guild: discord.Guild):
