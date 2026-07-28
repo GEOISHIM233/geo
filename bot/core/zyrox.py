@@ -28,13 +28,23 @@ from .Context import Context
 from colorama import Fore, Style, init
 import importlib
 import inspect
-import random
+import os
 
 init(autoreset=True)
 
-# Corrected the extensions list
+# Load all cogs from the cogs folder
 extensions: List[str] = [
     "cogs"
+]
+
+# Add individual subfolders if they exist
+cog_subfolders = [
+    "commands",
+    "events",
+    "moderation",
+    "economy",
+    "fun",
+    "utility"
 ]
 
 class zyrox(commands.AutoShardedBot):
@@ -61,12 +71,23 @@ class zyrox(commands.AutoShardedBot):
         self.status_task.start()
 
     async def load_extensions(self):
+        # Load main extension
         for extension in extensions:
             try:
                 await self.load_extension(extension)
                 print(Fore.GREEN + Style.BRIGHT + f"Loaded extension: {extension}")
             except Exception as e:
                 print(f"{Fore.RED}{Style.BRIGHT}Failed to load extension {extension}. {e}")
+        
+        # Load cogs from subfolders
+        for subfolder in cog_subfolders:
+            try:
+                await self.load_extension(f"cogs.{subfolder}")
+                print(Fore.GREEN + Style.BRIGHT + f"Loaded cogs from: cogs.{subfolder}")
+            except Exception as e:
+                # This is fine if the folder doesn't exist
+                pass
+        
         print(Fore.GREEN + Style.BRIGHT + "*" * 20)
 
     @tasks.loop(seconds=30)
