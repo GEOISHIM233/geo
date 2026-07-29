@@ -1,42 +1,58 @@
-Quart
-discord
-discord.py
-discord.ui
-jishaku
-mcstatus
-asyncio
-discord-ext-menus
-aiohttp
-datetime
-flask
-typing
-psutil
-collection
-requests
-pathlib
-pymongo
-wavelink>=2.0.0
-httpx
-discord.ext-context
-tasksio
-motor
-Augmentor
-numpy
-aiosqlite
-gtts
-langdetect
-python-dotenv
-pyttsx3
-PyYAML
-Requests
-openai
+# ================================================================
+#               BEZMS BOT – DEPENDENCIES
+# ================================================================
+
+# Core
+discord.py>=2.3.0
+python-dotenv>=1.0.0
+aiohttp>=3.9.0
+asyncio>=3.4.0
+
+# API / Web
+fastapi>=0.100.0
+uvicorn>=0.46.0
+slowapi>=0.1.0
+flask>=3.0.0
+requests>=2.31.0
+httpx>=0.27.0
+
+# Database
+aiosqlite>=0.19.0
+motor>=3.0.0
+pymongo>=4.5.0
+
+# Discord Extensions
+jishaku>=2.5.0
+discord-ext-menus>=1.0.0
+discord.ext-context>=0.1.0
+discord.ui>=5.0.0
+
+# Audio / Music
+wavelink>=3.0.0
+gtts>=2.3.0
+pyttsx3>=2.90
+
+# AI / NLP
+openai>=1.0.0
 duckduckgo-search==6.3.6
-# pillow==11.0.0
-colorama
-chess
-python-dateutil
 deep-translator==1.11.4
-uvicorn==0.46.0
-fastapi
-slowapi
-pycloudflared
+langdetect>=1.0.9
+
+# Image / Media
+Pillow>=10.0.0
+Augmentor>=0.2.0
+numpy>=1.24.0
+chess>=1.9.0
+
+# Utilities
+colorama>=0.4.6
+psutil>=5.9.0
+PyYAML>=6.0.0
+python-dateutil>=2.8.0
+typing>=3.7.0
+pathlib>=1.0.0
+collection>=0.1.0
+tasksio>=0.0.0
+mcstatus>=14.0.0
+pycloudflared>=0.3.0
+datetime>=5.0.0
