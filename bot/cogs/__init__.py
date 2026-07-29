@@ -74,6 +74,7 @@ from .commands.Birthday import Birthdays
 from .commands.nitro import Nitro
 from .commands.image import ImageCommands
 from .commands.youtube import Youtube
+from .websitetracker import WebsiteTracker
 #____________ Events _____________
 
 #from .events.autoblacklist import AutoBlacklist
@@ -253,6 +254,7 @@ async def setup(bot: zyrox):
   await bot.add_cog(Nitro(bot))
   await bot.add_cog(ImageCommands(bot))
   await bot.add_cog(Youtube(bot))
+  await bot.add_cog(WebsiteTracker(bot))
 
   await bot.add_cog(_antinuke(bot))
   await bot.add_cog(_extra(bot))
@@ -341,9 +343,6 @@ async def setup(bot: zyrox):
 
 
 
-
-
-
   await bot.add_cog(Ban(bot))
   await bot.add_cog(Unban(bot))
   await bot.add_cog(Mute(bot))
@@ -361,7 +360,7 @@ async def setup(bot: zyrox):
   await bot.add_cog(Snipe(bot))
   
 
-
   for cog in cogs_to_load:
     print(Fore.RED + Style.BRIGHT + f"Loaded cog: {cog.__name__}")
   print(Fore.RED + Style.BRIGHT + f"All {BotName} Cogs loaded successfully.")
+
