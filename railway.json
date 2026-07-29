@@ -1,10 +1,4 @@
 {
-  "builds": [
-    {
-      "src": "bot/CodeX.py",
-      "use": "python"
-    }
-  ],
   "deploy": {
     "startCommand": "cd bot && python CodeX.py",
     "restartPolicy": "on-failure",
