@@ -1,8 +1,114 @@
-  @commands.command(name="wipe", aliases=["purge", "clean"])
+# ╔══════════════════════════════════════════════════════════════════╗
+# ║            © 2026 Bezms — All Rights Reserved                   ║
+# ║   discord  ──  https://discord.gg/9nKHrnWZqV                    ║
+# ╚══════════════════════════════════════════════════════════════════╝
+
+import discord
+from utils.emoji import CROSS, DENIED, TICK, ZWARNING
+import asyncio
+import datetime
+import re
+import typing
+import typing as t
+from typing import *
+from utils.Tools import *
+from core import Cog, zyrox, Context
+from discord.ext.commands import Converter
+from discord.ext import commands, tasks
+from discord.ui import Button, View
+from typing import Union, Optional
+from utils import Paginator, DescriptionEmbedPaginator, FieldPagePaginator, TextPaginator
+from typing import Union, Optional
+from io import BytesIO
+import requests
+import aiohttp
+import time
+from datetime import datetime, timezone, timedelta
+import sqlite3
+from typing import *
+from discord.utils import utcnow
+from collections import Counter
+
+
+
+time_regex = re.compile(r"(?:(\d{1,5})(h|s|m|d))+?")
+time_dict = {"h": 3600, "s": 1, "m": 60, "d": 86400}
+
+
+def convert(argument):
+  args = argument.lower()
+  matches = re.findall(time_regex, args)
+  time = 0
+  for key, value in matches:
+    try:
+      time += time_dict[value] * float(key)
+    except KeyError:
+      raise commands.BadArgument(
+        f"{value} is an invalid time key! h|m|s|d are valid arguments")
+    except ValueError:
+      raise commands.BadArgument(f"{key} is not a number!")
+  return round(time)
+
+async def do_removal(ctx, limit, predicate, *, before=None, after=None):
+    if limit > 2000:
+        return await ctx.error(f"Too many messages to search given ({limit}/2000)")
+
+    if before is None:
+        before = ctx.message
+    else:
+        before = discord.Object(id=before)
+
+    if after is not None:
+        after = discord.Object(id=after)
+
+    try:
+        deleted = await ctx.channel.purge(limit=limit, before=before, after=after, check=predicate)
+    except discord.Forbidden as e:
+        return await ctx.error("I do not have permissions to delete messages.")
+    except discord.HTTPException as e:
+        return await ctx.error(f"Error: {e} (try a smaller search?)")
+
+    spammers = Counter(m.author.display_name for m in deleted)
+    deleted = len(deleted)
+    messages = [f'{TICK}> | {deleted} message{" was" if deleted == 1 else "s were"} removed.']
+    if deleted:
+        messages.append("")
+        spammers = sorted(spammers.items(), key=lambda t: t[1], reverse=True)
+        messages.extend(f"**{name}**: {count}" for name, count in spammers)
+
+    to_send = "\n".join(messages)
+
+    if len(to_send) > 2000:
+        await ctx.send(f"{TICK}> | Successfully removed {deleted} messages.", delete_after=7)
+    else:
+        await ctx.send(to_send, delete_after=7)
+
+
+class Moderation(commands.Cog):
+
+  def __init__(self, bot):
+    self.bot = bot
+    self.color = 0xFF0000
+    self.sniped = {}
+
+  def convert(self, time):
+    pos = ["s", "m", "h", "d"]
+
+    time_dict = {"s": 1, "m": 60, "h": 3600, "d": 3600 * 24}
+    unit = time[-1]
+    if unit not in pos:
+      return -1
+    try:
+      val = int(time[:-1])
+    except:
+      return -2
+    return val * time_dict[unit]
+
+  @commands.command(name="purge", aliases=["clean"])
   @commands.has_permissions(manage_messages=True)
-  async def wipe(self, ctx: Context, amount: int = None):
+  async def purge(self, ctx: Context, amount: int = None):
       """
-      Deletes messages. Usage: !wipe [amount] – if no amount, deletes up to 10000.
+      Deletes messages. Usage: !purge [amount] – if no amount, deletes up to 10000.
       """
       if amount is None:
           amount = 10000
@@ -41,8 +147,8 @@
       )
       await ctx.send(embed=embed, delete_after=5)
 
-  @wipe.error
-  async def wipe_error(self, ctx: Context, error):
+  @purge.error
+  async def purge_error(self, ctx: Context, error):
       if isinstance(error, commands.MissingPermissions):
           embed = discord.Embed(
               title="❌ Permission Denied",
@@ -53,7 +159,16 @@
       elif isinstance(error, commands.BadArgument):
           embed = discord.Embed(
               title="❌ Invalid Input",
-              description="Please provide a valid number. Example: `!wipe 50`\nOr just type `!wipe` to clear everything.",
+              description="Please provide a valid number. Example: `!purge 50`\nOr just type `!purge` to clear everything.",
               color=self.color
           )
           await ctx.send(embed=embed)
+
+  # ================================================================
+  # ALL YOUR OTHER COMMANDS (lockall, unlockall, hideall, give, etc.)
+  # Keep them exactly as you had them – they are unchanged.
+  # ================================================================
+  # ... (the rest of your moderation commands go here)
+
+async def setup(bot):
+    await bot.add_cog(Moderation(bot))
