@@ -1,172 +1,206 @@
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║            © 2026 Bezms — All Rights Reserved                   ║
-# ║   discord  ──  https://discord.gg/9nKHrnWZqV                    ║
-# ╚══════════════════════════════════════════════════════════════════╝
-
 import discord
-from utils.emoji import CROSS, DENIED, TICK, ZWARNING
-import asyncio
-import datetime
-import re
-import typing
-import typing as t
-from typing import *
-from utils.Tools import *
-from core import Cog, zyrox, Context
-from discord.ext.commands import Converter
-from discord.ext import commands, tasks
-from discord.ui import Button, View
-from typing import Union, Optional
-from utils import Paginator, DescriptionEmbedPaginator, FieldPagePaginator, TextPaginator
-from typing import Union, Optional
-from io import BytesIO
-import requests
+from discord.ext import commands
 import aiohttp
-import time
-from datetime import datetime, timezone, timedelta
-import sqlite3
-from typing import *
-from discord.utils import utcnow
-from collections import Counter
+import json
+import re
+import os
+from typing import Optional
 
+WEBSITES_FILE = "websites.json"
 
+class HitCounter(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.websites = self.load_websites()
 
-time_regex = re.compile(r"(?:(\d{1,5})(h|s|m|d))+?")
-time_dict = {"h": 3600, "s": 1, "m": 60, "d": 86400}
+    def load_websites(self):
+        if os.path.exists(WEBSITES_FILE):
+            with open(WEBSITES_FILE, 'r') as f:
+                return json.load(f)
+        return {}
 
+    def save_websites(self):
+        with open(WEBSITES_FILE, 'w') as f:
+            json.dump(self.websites, f, indent=4)
 
-def convert(argument):
-  args = argument.lower()
-  matches = re.findall(time_regex, args)
-  time = 0
-  for key, value in matches:
-    try:
-      time += time_dict[value] * float(key)
-    except KeyError:
-      raise commands.BadArgument(
-        f"{value} is an invalid time key! h|m|s|d are valid arguments")
-    except ValueError:
-      raise commands.BadArgument(f"{key} is not a number!")
-  return round(time)
+    async def fetch_hits(self, site_name: str, username: str) -> Optional[int]:
+        site = self.websites.get(site_name)
+        if not site:
+            return None
+        url = site['url'].format(user=username)
+        parser_type = site['parser_type']
+        parser_value = site['parser_value']
 
-async def do_removal(ctx, limit, predicate, *, before=None, after=None):
-    if limit > 2000:
-        return await ctx.error(f"Too many messages to search given ({limit}/2000)")
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status != 200:
+                        return None
+                    if parser_type == 'json':
+                        data = await response.json()
+                        keys = parser_value.split('.')
+                        value = data
+                        for key in keys:
+                            if isinstance(value, dict):
+                                value = value.get(key)
+                            elif key.isdigit() and isinstance(value, list):
+                                value = value[int(key)]
+                            else:
+                                return None
+                        if isinstance(value, int):
+                            return value
+                        elif isinstance(value, str) and value.isdigit():
+                            return int(value)
+                        return None
+                    elif parser_type == 'regex':
+                        text = await response.text()
+                        match = re.search(parser_value, text)
+                        if match:
+                            try:
+                                return int(match.group(1))
+                            except (ValueError, IndexError):
+                                return None
+        except Exception:
+            return None
 
-    if before is None:
-        before = ctx.message
-    else:
-        before = discord.Object(id=before)
+    @commands.command(name='myhits')
+    async def myhits(self, ctx: commands.Context, username: Optional[str] = None):
+        if not username:
+            username = ctx.author.display_name
+        results = {}
+        total = 0
+        for name in self.websites:
+            hits = await self.fetch_hits(name, username)
+            if hits is not None:
+                results[name] = hits
+                total += hits
+            else:
+                results[name] = "❌"
+        if not results:
+            embed = discord.Embed(
+                title="❌ No websites configured",
+                description="Ask an admin to add websites using `>addsite`.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        embed = discord.Embed(
+            title=f"🔢 Hit Counts for `{username}`",
+            color=discord.Color.blue()
+        )
+        for name, hits in results.items():
+            if isinstance(hits, int):
+                embed.add_field(name=f"📊 {name}", value=f"{hits:,}", inline=True)
+            else:
+                embed.add_field(name=f"📊 {name}", value=hits, inline=True)
+        embed.add_field(name="📈 Total", value=f"{total:,}", inline=False)
+        await ctx.send(embed=embed)
 
-    if after is not None:
-        after = discord.Object(id=after)
+    @commands.command(name='addsite')
+    @commands.has_permissions(administrator=True)
+    async def addsite(self, ctx: commands.Context, name: str, url_template: str, parser_type: str, parser_value: str):
+        if name in self.websites:
+            embed = discord.Embed(
+                title="⚠️ Already Exists",
+                description=f"A site named `{name}` already exists. Use `>removesite` first.",
+                color=discord.Color.orange()
+            )
+            await ctx.send(embed=embed)
+            return
+        if "{user}" not in url_template:
+            embed = discord.Embed(
+                title="❌ Invalid URL Template",
+                description="The URL must contain `{user}` as a placeholder.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        if parser_type not in ('json', 'regex'):
+            embed = discord.Embed(
+                title="❌ Invalid parser type",
+                description="Must be `json` or `regex`.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        self.websites[name] = {
+            "url": url_template,
+            "parser_type": parser_type,
+            "parser_value": parser_value
+        }
+        self.save_websites()
+        embed = discord.Embed(
+            title="✅ Site Added",
+            description=f"Added `{name}` with parser `{parser_type}` and value `{parser_value}`.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
 
-    try:
-        deleted = await ctx.channel.purge(limit=limit, before=before, after=after, check=predicate)
-    except discord.Forbidden as e:
-        return await ctx.error("I do not have permissions to delete messages.")
-    except discord.HTTPException as e:
-        return await ctx.error(f"Error: {e} (try a smaller search?)")
+    @commands.command(name='removesite')
+    @commands.has_permissions(administrator=True)
+    async def removesite(self, ctx: commands.Context, name: str):
+        if name not in self.websites:
+            embed = discord.Embed(
+                title="❌ Not Found",
+                description=f"No site named `{name}` found.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        del self.websites[name]
+        self.save_websites()
+        embed = discord.Embed(
+            title="✅ Site Removed",
+            description=f"Removed `{name}`.",
+            color=discord.Color.green()
+        )
+        await ctx.send(embed=embed)
 
-    spammers = Counter(m.author.display_name for m in deleted)
-    deleted = len(deleted)
-    messages = [f'{TICK}> | {deleted} message{" was" if deleted == 1 else "s were"} removed.']
-    if deleted:
-        messages.append("")
-        spammers = sorted(spammers.items(), key=lambda t: t[1], reverse=True)
-        messages.extend(f"**{name}**: {count}" for name, count in spammers)
+    @commands.command(name='listsites')
+    async def listsites(self, ctx: commands.Context):
+        if not self.websites:
+            embed = discord.Embed(
+                title="📋 Tracked Websites",
+                description="No websites configured.",
+                color=discord.Color.blue()
+            )
+            await ctx.send(embed=embed)
+            return
+        description = ""
+        for name, site in self.websites.items():
+            description += f"• **{name}** — `{site['url']}` (parser: {site['parser_type']})\n"
+        embed = discord.Embed(
+            title="📋 Tracked Websites",
+            description=description,
+            color=discord.Color.blue()
+        )
+        await ctx.send(embed=embed)
 
-    to_send = "\n".join(messages)
-
-    if len(to_send) > 2000:
-        await ctx.send(f"{TICK}> | Successfully removed {deleted} messages.", delete_after=7)
-    else:
-        await ctx.send(to_send, delete_after=7)
-
-
-class Moderation(commands.Cog):
-
-  def __init__(self, bot):
-    self.bot = bot
-    self.color = 0xFF0000
-    self.sniped = {}
-
-  def convert(self, time):
-    pos = ["s", "m", "h", "d"]
-
-    time_dict = {"s": 1, "m": 60, "h": 3600, "d": 3600 * 24}
-    unit = time[-1]
-    if unit not in pos:
-      return -1
-    try:
-      val = int(time[:-1])
-    except:
-      return -2
-    return val * time_dict[unit]
-
-  @commands.command(name="wipe", aliases=["purge", "clean"])
-  @commands.has_permissions(manage_messages=True)
-  async def wipe(self, ctx: Context, amount: int = None):
-      """
-      Deletes messages. Usage: !wipe [amount] – if no amount, deletes up to 10000.
-      """
-      if amount is None:
-          amount = 10000
-      if amount < 1:
-          embed = discord.Embed(
-              title="❌ Invalid Number",
-              description="You must delete at least 1 message.",
-              color=self.color
-          )
-          return await ctx.send(embed=embed)
-      if amount > 10000:
-          embed = discord.Embed(
-              title="❌ Too Many Messages",
-              description="You can only delete up to 10,000 messages at a time.",
-              color=self.color
-          )
-          return await ctx.send(embed=embed)
-
-      warning_msg = None
-      if amount >= 1000:
-          warning_msg = await ctx.send(f"⚠️ Deleting **{amount}** messages... This may take a few seconds.")
-
-      deleted = await ctx.channel.purge(limit=amount + 1)
-      
-      if warning_msg:
-          try:
-              await warning_msg.delete()
-          except:
-              pass
-
-      embed = discord.Embed(
-          title="✅ Messages Cleared",
-          description=f"Successfully deleted **{len(deleted) - 1}** messages.",
-          color=discord.Color.green()
-      )
-      await ctx.send(embed=embed, delete_after=5)
-
-  @wipe.error
-  async def wipe_error(self, ctx: Context, error):
-      if isinstance(error, commands.MissingPermissions):
-          embed = discord.Embed(
-              title="❌ Permission Denied",
-              description="You need the **Manage Messages** permission to use this command.",
-              color=self.color
-          )
-          await ctx.send(embed=embed)
-      elif isinstance(error, commands.BadArgument):
-          embed = discord.Embed(
-              title="❌ Invalid Input",
-              description="Please provide a valid number. Example: `!wipe 50`\nOr just type `!wipe` to clear everything.",
-              color=self.color
-          )
-          await ctx.send(embed=embed)
-
-  # ================================================================
-  # YOUR OTHER MODERATION COMMANDS (lockall, unlockall, hideall, give, etc.)
-  # Add them below exactly as you had them.
-  # ================================================================
+    @commands.command(name='testuser')
+    @commands.has_permissions(administrator=True)
+    async def testuser(self, ctx: commands.Context, site: str, username: str):
+        if site not in self.websites:
+            embed = discord.Embed(
+                title="❌ Site Not Found",
+                description=f"No site named `{site}` found.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        hits = await self.fetch_hits(site, username)
+        if hits is not None:
+            embed = discord.Embed(
+                title="✅ Test Successful",
+                description=f"Site **{site}** returned **{hits:,}** hits for `{username}`.",
+                color=discord.Color.green()
+            )
+        else:
+            embed = discord.Embed(
+                title="❌ Test Failed",
+                description=f"Could not fetch hit count for `{username}` from **{site}**.",
+                color=discord.Color.red()
+            )
+        await ctx.send(embed=embed)
 
 async def setup(bot):
-    await bot.add_cog(Moderation(bot))
+    await bot.add_cog(HitCounter(bot))
