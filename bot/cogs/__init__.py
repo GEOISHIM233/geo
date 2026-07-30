@@ -363,4 +363,3 @@ async def setup(bot: zyrox):
   for cog in cogs_to_load:
     print(Fore.RED + Style.BRIGHT + f"Loaded cog: {cog.__name__}")
   print(Fore.RED + Style.BRIGHT + f"All {BotName} Cogs loaded successfully.")
-
