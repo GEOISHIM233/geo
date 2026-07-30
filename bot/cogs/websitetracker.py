@@ -1,317 +1,206 @@
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║            © 2026 Bezms — All Rights Reserved                   ║
-# ║   discord  ──  https://discord.gg/9nKHrnWZqV                    ║
-# ╚══════════════════════════════════════════════════════════════════╝
-
 import discord
 from discord.ext import commands
-from discord import app_commands
 import aiohttp
 import json
-import os
 import re
+import os
 from typing import Optional
-from pathlib import Path
 
 WEBSITES_FILE = "websites.json"
 
-def load_websites():
-    """Load websites from JSON file"""
-    if os.path.exists(WEBSITES_FILE):
-        with open(WEBSITES_FILE, "r") as f:
-            return json.load(f)
-    return {}
-
-def save_websites(data):
-    """Save websites to JSON file"""
-    with open(WEBSITES_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-def parse_json_path(obj, path: str):
-    """Parse JSON path like 'data.hits' or 'user.stats.total'"""
-    keys = path.split(".")
-    for key in keys:
-        if isinstance(obj, dict):
-            obj = obj.get(key)
-        else:
-            return None
-    return obj
-
-def parse_regex(text: str, pattern: str):
-    """Extract value using regex with one capture group"""
-    try:
-        match = re.search(pattern, text)
-        if match:
-            return match.group(1)
-    except:
-        pass
-    return None
-
-async def fetch_hits(url_template: str, username: str, parser_type: str, parser_value: str) -> Optional[str]:
-    """Fetch hit count from a website"""
-    url = url_template.replace("{user}", username)
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status != 200:
-                    return None
-                
-                if parser_type == "json":
-                    try:
-                        data = await resp.json()
-                        value = parse_json_path(data, parser_value)
-                        return str(value) if value is not None else None
-                    except:
-                        return None
-                
-                elif parser_type == "regex":
-                    text = await resp.text()
-                    value = parse_regex(text, parser_value)
-                    return value
-    except asyncio.TimeoutError:
-        return None
-    except Exception:
-        return None
-    
-    return None
-
 class WebsiteTracker(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot):
         self.bot = bot
+        self.websites = self.load_websites()
 
-    def is_admin(self, interaction: discord.Interaction) -> bool:
-        """Check if user is admin"""
-        return interaction.user.guild_permissions.administrator
+    def load_websites(self):
+        if os.path.exists(WEBSITES_FILE):
+            with open(WEBSITES_FILE, 'r') as f:
+                return json.load(f)
+        return {}
 
-    @app_commands.command(name="myhits", description="Check hits on all configured websites")
-    @app_commands.describe(username="Username to check (defaults to your Discord name)")
-    async def myhits(self, interaction: discord.Interaction, username: Optional[str] = None):
-        """Check all configured websites for a username"""
-        await interaction.response.defer()
-        
-        if username is None:
-            username = interaction.user.name
-        
-        websites = load_websites()
-        
-        if not websites:
+    def save_websites(self):
+        with open(WEBSITES_FILE, 'w') as f:
+            json.dump(self.websites, f, indent=4)
+
+    async def fetch_hits(self, site_name: str, username: str) -> Optional[int]:
+        site = self.websites.get(site_name)
+        if not site:
+            return None
+        url = site['url'].format(user=username)
+        parser_type = site['parser_type']
+        parser_value = site['parser_value']
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as response:
+                    if response.status != 200:
+                        return None
+                    if parser_type == 'json':
+                        data = await response.json()
+                        keys = parser_value.split('.')
+                        value = data
+                        for key in keys:
+                            if isinstance(value, dict):
+                                value = value.get(key)
+                            elif key.isdigit() and isinstance(value, list):
+                                value = value[int(key)]
+                            else:
+                                return None
+                        if isinstance(value, int):
+                            return value
+                        elif isinstance(value, str) and value.isdigit():
+                            return int(value)
+                        return None
+                    elif parser_type == 'regex':
+                        text = await response.text()
+                        match = re.search(parser_value, text)
+                        if match:
+                            try:
+                                return int(match.group(1))
+                            except (ValueError, IndexError):
+                                return None
+        except Exception:
+            return None
+
+    @commands.command(name='myhits')
+    async def myhits(self, ctx: commands.Context, username: Optional[str] = None):
+        if not username:
+            username = ctx.author.display_name
+        results = {}
+        total = 0
+        for name in self.websites:
+            hits = await self.fetch_hits(name, username)
+            if hits is not None:
+                results[name] = hits
+                total += hits
+            else:
+                results[name] = "❌"
+        if not results:
             embed = discord.Embed(
-                title="No Websites Configured",
-                description="No websites have been added yet. Use `/addsite` to add one.",
+                title="❌ No websites configured",
+                description="Ask an admin to add websites using `>addsite`.",
                 color=discord.Color.red()
             )
-            return await interaction.followup.send(embed=embed)
-        
+            await ctx.send(embed=embed)
+            return
         embed = discord.Embed(
-            title=f"Website Hits for **{username}**",
+            title=f"🔢 Hit Counts for `{username}`",
             color=discord.Color.blue()
         )
-        
-        total_hits = 0
-        results = []
-        
-        for site_name, config in websites.items():
-            hits = await fetch_hits(
-                config["url_template"],
-                username,
-                config["parser_type"],
-                config["parser_value"]
-            )
-            
-            if hits:
-                try:
-                    hit_count = int(hits)
-                    total_hits += hit_count
-                    results.append((site_name, hit_count))
-                    embed.add_field(
-                        name=site_name,
-                        value=f"**{hit_count:,}** hits",
-                        inline=False
-                    )
-                except ValueError:
-                    embed.add_field(
-                        name=site_name,
-                        value=f"**{hits}** (non-numeric)",
-                        inline=False
-                    )
+        for name, hits in results.items():
+            if isinstance(hits, int):
+                embed.add_field(name=f"📊 {name}", value=f"{hits:,}", inline=True)
             else:
-                embed.add_field(
-                    name=site_name,
-                    value="❌ Error fetching data",
-                    inline=False
-                )
-        
-        embed.set_footer(text=f"Total Hits: {total_hits:,}" if results else "No data available")
-        await interaction.followup.send(embed=embed)
+                embed.add_field(name=f"📊 {name}", value=hits, inline=True)
+        embed.add_field(name="📈 Total", value=f"{total:,}", inline=False)
+        await ctx.send(embed=embed)
 
-    @app_commands.command(name="addsite", description="Add a website to track")
-    @app_commands.describe(
-        name="Site name (e.g., 'Beamse')",
-        url_template="URL with {user} placeholder (e.g., 'https://app.beamse.pro/api/user/{user}')",
-        parser_type="Parser type: 'json' or 'regex'",
-        parser_value="JSON path (e.g., 'hits') or regex pattern (e.g., 'Total: (\\d+)')"
-    )
-    async def addsite(
-        self,
-        interaction: discord.Interaction,
-        name: str,
-        url_template: str,
-        parser_type: str,
-        parser_value: str
-    ):
-        """Add a website to track (Admin only)"""
-        if not self.is_admin(interaction):
+    @commands.command(name='addsite')
+    @commands.has_permissions(administrator=True)
+    async def addsite(self, ctx: commands.Context, name: str, url_template: str, parser_type: str, parser_value: str):
+        if name in self.websites:
             embed = discord.Embed(
-                title="Permission Denied",
-                description="Only administrators can add websites.",
-                color=discord.Color.red()
+                title="⚠️ Already Exists",
+                description=f"A site named `{name}` already exists. Use `>removesite` first.",
+                color=discord.Color.orange()
             )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        if parser_type not in ["json", "regex"]:
-            embed = discord.Embed(
-                title="Invalid Parser Type",
-                description="Parser type must be 'json' or 'regex'.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
+            await ctx.send(embed=embed)
+            return
         if "{user}" not in url_template:
             embed = discord.Embed(
-                title="Invalid URL Template",
-                description="URL must contain `{user}` as a placeholder.",
+                title="❌ Invalid URL Template",
+                description="The URL must contain `{user}` as a placeholder.",
                 color=discord.Color.red()
             )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        websites = load_websites()
-        websites[name] = {
-            "url_template": url_template,
+            await ctx.send(embed=embed)
+            return
+        if parser_type not in ('json', 'regex'):
+            embed = discord.Embed(
+                title="❌ Invalid parser type",
+                description="Must be `json` or `regex`.",
+                color=discord.Color.red()
+            )
+            await ctx.send(embed=embed)
+            return
+        self.websites[name] = {
+            "url": url_template,
             "parser_type": parser_type,
             "parser_value": parser_value
         }
-        save_websites(websites)
-        
+        self.save_websites()
         embed = discord.Embed(
-            title="Website Added",
-            description=f"**{name}** has been added to tracking.",
+            title="✅ Site Added",
+            description=f"Added `{name}` with parser `{parser_type}` and value `{parser_value}`.",
             color=discord.Color.green()
         )
-        embed.add_field(name="URL Template", value=url_template, inline=False)
-        embed.add_field(name="Parser Type", value=parser_type, inline=False)
-        embed.add_field(name="Parser Value", value=parser_value, inline=False)
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)
 
-    @app_commands.command(name="removesite", description="Remove a tracked website")
-    @app_commands.describe(name="Site name to remove")
-    async def removesite(self, interaction: discord.Interaction, name: str):
-        """Remove a website from tracking (Admin only)"""
-        if not self.is_admin(interaction):
+    @commands.command(name='removesite')
+    @commands.has_permissions(administrator=True)
+    async def removesite(self, ctx: commands.Context, name: str):
+        if name not in self.websites:
             embed = discord.Embed(
-                title="Permission Denied",
-                description="Only administrators can remove websites.",
+                title="❌ Not Found",
+                description=f"No site named `{name}` found.",
                 color=discord.Color.red()
             )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        websites = load_websites()
-        
-        if name not in websites:
-            embed = discord.Embed(
-                title="Site Not Found",
-                description=f"**{name}** is not in the tracking list.",
-                color=discord.Color.red()
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        del websites[name]
-        save_websites(websites)
-        
+            await ctx.send(embed=embed)
+            return
+        del self.websites[name]
+        self.save_websites()
         embed = discord.Embed(
-            title="Website Removed",
-            description=f"**{name}** has been removed from tracking.",
+            title="✅ Site Removed",
+            description=f"Removed `{name}`.",
             color=discord.Color.green()
         )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await ctx.send(embed=embed)
 
-    @app_commands.command(name="listsites", description="List all configured websites")
-    async def listsites(self, interaction: discord.Interaction):
-        """Show all configured websites"""
-        await interaction.response.defer()
-        
-        websites = load_websites()
-        
-        if not websites:
+    @commands.command(name='listsites')
+    async def listsites(self, ctx: commands.Context):
+        if not self.websites:
             embed = discord.Embed(
-                title="No Websites Configured",
-                description="No websites have been added yet. Use `/addsite` to add one.",
-                color=discord.Color.orange()
+                title="📋 Tracked Websites",
+                description="No websites configured.",
+                color=discord.Color.blue()
             )
-            return await interaction.followup.send(embed=embed)
-        
+            await ctx.send(embed=embed)
+            return
+        description = ""
+        for name, site in self.websites.items():
+            description += f"• **{name}** — `{site['url']}` (parser: {site['parser_type']})\n"
         embed = discord.Embed(
-            title="Configured Websites",
+            title="📋 Tracked Websites",
+            description=description,
             color=discord.Color.blue()
         )
-        
-        for name, config in websites.items():
-            value = (
-                f"**URL:** `{config['url_template']}`\n"
-                f"**Parser:** `{config['parser_type']}` → `{config['parser_value']}`"
-            )
-            embed.add_field(name=name, value=value, inline=False)
-        
-        embed.set_footer(text=f"Total: {len(websites)} site(s)")
-        await interaction.followup.send(embed=embed)
+        await ctx.send(embed=embed)
 
-    @app_commands.command(name="testuser", description="Test a specific site for a username")
-    @app_commands.describe(site="Site name to test", username="Username to test")
-    async def testuser(self, interaction: discord.Interaction, site: str, username: str):
-        """Test a specific website for a user"""
-        await interaction.response.defer()
-        
-        websites = load_websites()
-        
-        if site not in websites:
+    @commands.command(name='testuser')
+    @commands.has_permissions(administrator=True)
+    async def testuser(self, ctx: commands.Context, site: str, username: str):
+        if site not in self.websites:
             embed = discord.Embed(
-                title="Site Not Found",
-                description=f"**{site}** is not in the tracking list.",
+                title="❌ Site Not Found",
+                description=f"No site named `{site}` found.",
                 color=discord.Color.red()
             )
-            return await interaction.followup.send(embed=embed)
-        
-        config = websites[site]
-        embed = discord.Embed(
-            title=f"Testing {site}",
-            description=f"Username: **{username}**",
-            color=discord.Color.blue()
-        )
-        
-        hits = await fetch_hits(
-            config["url_template"],
-            username,
-            config["parser_type"],
-            config["parser_value"]
-        )
-        
-        if hits:
-            embed.add_field(name="Result", value=f"✅ **{hits}** hits", inline=False)
-            embed.color = discord.Color.green()
+            await ctx.send(embed=embed)
+            return
+        hits = await self.fetch_hits(site, username)
+        if hits is not None:
+            embed = discord.Embed(
+                title="✅ Test Successful",
+                description=f"Site **{site}** returned **{hits:,}** hits for `{username}`.",
+                color=discord.Color.green()
+            )
         else:
-            embed.add_field(
-                name="Result",
-                value="❌ Could not fetch data. Check if the username exists on this site.",
-                inline=False
+            embed = discord.Embed(
+                title="❌ Test Failed",
+                description=f"Could not fetch hit count for `{username}` from **{site}**.",
+                color=discord.Color.red()
             )
-            embed.color = discord.Color.red()
-        
-        embed.add_field(name="URL Tested", value=config["url_template"].replace("{user}", username), inline=False)
-        await interaction.followup.send(embed=embed)
+        await ctx.send(embed=embed)
 
-
-import asyncio
-
-async def setup(bot: commands.Bot):
+async def setup(bot):
     await bot.add_cog(WebsiteTracker(bot))
-
