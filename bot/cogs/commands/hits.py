@@ -1,4 +1,4 @@
-import discord
+    import discord
 from discord.ext import commands
 import aiohttp
 import json
@@ -66,10 +66,11 @@ class HitCounter(commands.Cog):
     @commands.command(name='myhits')
     async def myhits(self, ctx: commands.Context, username: Optional[str] = None):
         """Check your total hits across all tracked websites.
-        Usage: >myhits [username]  (defaults to your Discord name)
+        Usage: >myhits [username]  (defaults to your display name/nickname)
         """
+        # Use display name (nickname) if set, else account name
         if not username:
-            username = ctx.author.name
+            username = ctx.author.display_name
 
         results = {}
         total = 0
