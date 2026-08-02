@@ -10,6 +10,8 @@ from colorama import Fore, Style, init
 # ============================================================
 # IMPORT ALL COGS
 # ============================================================
+
+# === MAIN COMMANDS ===
 from .commands.moderation import Moderation
 from .commands.leavesystem import LeaveSystem
 from .commands.ticket import TicketSystem
@@ -78,7 +80,7 @@ from .commands.image import ImageCommands
 from .commands.youtube import Youtube
 from .websitetracker import WebsiteTracker
 
-# Events
+# === EVENTS ===
 from .events.Errors import Errors
 from .events.on_guild import Guild
 from .events.autorole import Autorole2
@@ -90,7 +92,7 @@ from .events.autoreact import AutoReactListener
 from .events.ai import AIResponses 
 from .events.stickymessage import StickyMessageListener
 
-# Antinuke
+# === ANTINUKE ===
 from .antinuke.anti_member_update import AntiMemberUpdate
 from .antinuke.antiban import AntiBan
 from .antinuke.antibotadd import AntiBotAdd
@@ -109,7 +111,7 @@ from .antinuke.antiwebhook import AntiWebhookUpdate
 from .antinuke.antiwebhookcr import AntiWebhookCreate
 from .antinuke.antiwebhookdl import AntiWebhookDelete
 
-# Automod
+# === AUTOMOD ===
 from .automod.antispam import AntiSpam
 from .automod.anticaps import AntiCaps
 from .automod.antilink import AntiLink
@@ -117,7 +119,7 @@ from .automod.anti_invites import AntiInvite
 from .automod.anti_mass_mention import AntiMassMention
 from .automod.anti_emoji_spam import AntiEmojiSpam
 
-# Moderation commands (individual files)
+# === INDIVIDUAL MODERATION COMMANDS (from moderation folder) ===
 from .moderation.ban import Ban
 from .moderation.unban import Unban
 from .moderation.timeout import Mute
@@ -130,11 +132,10 @@ from .moderation.kick import Kick
 from .moderation.warn import Warn
 from .moderation.role import Role
 from .moderation.message import Message
-from .moderation.moderation import Moderation as ModerationCog
 from .moderation.topcheck import TopCheck
 from .moderation.snipe import Snipe
 
-# Help pages
+# === HELP PAGES (Zyrox) ===
 from .zyrox.antinuke import _antinuke
 from .zyrox.extra import _extra
 from .zyrox.general import _general
@@ -170,7 +171,7 @@ async def setup(bot: zyrox):
     # ADD ALL COGS
     # ============================================================
     
-    # Main commands
+    # === MAIN COMMANDS ===
     await bot.add_cog(Moderation(bot))
     await bot.add_cog(LeaveSystem(bot))
     await bot.add_cog(TicketSystem(bot))
@@ -234,7 +235,7 @@ async def setup(bot: zyrox):
     await bot.add_cog(Youtube(bot))
     await bot.add_cog(WebsiteTracker(bot))
 
-    # Events
+    # === EVENTS ===
     await bot.add_cog(Guild(bot))
     await bot.add_cog(Errors(bot))
     await bot.add_cog(Autorole2(bot))
@@ -250,7 +251,7 @@ async def setup(bot: zyrox):
     await bot.add_cog(StickyMessageListener(bot))
     await bot.add_cog(AIResponses(bot))
 
-    # Antinuke
+    # === ANTINUKE ===
     await bot.add_cog(AntiMemberUpdate(bot))
     await bot.add_cog(AntiBan(bot))
     await bot.add_cog(AntiBotAdd(bot))
@@ -269,7 +270,7 @@ async def setup(bot: zyrox):
     await bot.add_cog(AntiWebhookCreate(bot))
     await bot.add_cog(AntiWebhookDelete(bot))
 
-    # Automod
+    # === AUTOMOD ===
     await bot.add_cog(AntiSpam(bot))
     await bot.add_cog(AntiCaps(bot))
     await bot.add_cog(AntiInvite(bot))
@@ -277,7 +278,9 @@ async def setup(bot: zyrox):
     await bot.add_cog(AntiMassMention(bot))
     await bot.add_cog(AntiEmojiSpam(bot))
 
-    # Moderation cogs
+    # === INDIVIDUAL MODERATION COMMANDS ===
+    # NOTE: These are individual command cogs from the moderation folder.
+    # All grouped moderation commands are in commands/moderation.py (Moderation cog above)
     await bot.add_cog(Ban(bot))
     await bot.add_cog(Unban(bot))
     await bot.add_cog(Mute(bot))
@@ -290,11 +293,10 @@ async def setup(bot: zyrox):
     await bot.add_cog(Warn(bot))
     await bot.add_cog(Role(bot))
     await bot.add_cog(Message(bot))
-    await bot.add_cog(ModerationCog(bot))
     await bot.add_cog(TopCheck(bot))
     await bot.add_cog(Snipe(bot))
 
-    # Help pages (Zyrox)
+    # === HELP PAGES (Zyrox) ===
     await bot.add_cog(_antinuke(bot))
     await bot.add_cog(_extra(bot))
     await bot.add_cog(_general(bot))
@@ -325,11 +327,7 @@ async def setup(bot: zyrox):
     await bot.add_cog(_birth(bot))
 
     # ============================================================
-    # REMOVE DUPLICATE PURGE COMMAND (fixes conflict)
-    # ============================================================
-    bot.remove_command("purge")
-
-    # ============================================================
     # PRINT SUMMARY
     # ============================================================
-    print(Fore.GREEN + Style.BRIGHT + "All cogs loaded successfully!")
+    print(Fore.GREEN + Style.BRIGHT + "✅ All cogs loaded successfully! No duplicate purge command errors.")
+
