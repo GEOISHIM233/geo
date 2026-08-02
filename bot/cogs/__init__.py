@@ -162,6 +162,14 @@ from .zyrox.birth import _birth
 from utils.config import BotName
 
 async def setup(bot: zyrox):
+    # ----- Guard against duplicate commands BEFORE any cog is added -----
+    # This must run first: add_cog() registers commands immediately and
+    # raises the instant a second cog defines the same command name, so
+    # doing this at the end of setup() (as before) can never prevent that
+    # crash — by the time execution would reach it, the crash already
+    # happened on whichever add_cog() call hit the duplicate.
+    bot.remove_command("purge")
+
     # ----- Main command cogs -----
     await bot.add_cog(Moderation(bot))
     await bot.add_cog(LeaveSystem(bot))
@@ -314,8 +322,5 @@ async def setup(bot: zyrox):
     await bot.add_cog(_mc(bot))
     await bot.add_cog(_joindm(bot))
     await bot.add_cog(_birth(bot))
-
-    # ----- Optional: remove any duplicate commands (safe) -----
-    bot.remove_command("purge")  # ensures only one exists
 
     print(Fore.GREEN + Style.BRIGHT + "All cogs loaded successfully!")
