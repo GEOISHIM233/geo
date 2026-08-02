@@ -45,9 +45,11 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     @commands.guild_only()
     async def lockall(self, ctx):
-        if not (ctx.author == ctx.guild.owner or ctx.author.top_role.position > ctx.guild.me.top_role.position):
-            return await ctx.send(embed=discord.Embed(title="⛔ Denied", description="Your role must be above mine.", color=self.color))
-
+        # NOTE: removed the old "author.top_role.position > bot.top_role.position" check.
+        # It required the invoking admin's top role to sit ABOVE the bot's own top role,
+        # which blocked virtually every admin except the server owner. The
+        # @commands.has_permissions(administrator=True) decorator above already
+        # gates who can run this command, so the extra check was redundant and wrong.
         button = Button(label="Confirm", style=discord.ButtonStyle.green, emoji=TICK)
         button1 = Button(label="Cancel", style=discord.ButtonStyle.red, emoji=CROSS)
 
@@ -85,9 +87,6 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     @commands.guild_only()
     async def unlockall(self, ctx):
-        if not (ctx.author == ctx.guild.owner or ctx.author.top_role.position > ctx.guild.me.top_role.position):
-            return await ctx.send(embed=discord.Embed(title="⛔ Denied", description="Your role must be above mine.", color=self.color))
-
         button = Button(label="Confirm", style=discord.ButtonStyle.green, emoji=TICK)
         button1 = Button(label="Cancel", style=discord.ButtonStyle.red, emoji=CROSS)
 
@@ -125,9 +124,6 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     @commands.guild_only()
     async def hideall(self, ctx):
-        if not (ctx.author == ctx.guild.owner or ctx.author.top_role.position > ctx.guild.me.top_role.position):
-            return await ctx.send(embed=discord.Embed(title="⛔ Denied", description="Your role must be above mine.", color=self.color))
-
         button = Button(label="Confirm", style=discord.ButtonStyle.green, emoji=TICK)
         button1 = Button(label="Cancel", style=discord.ButtonStyle.red, emoji=CROSS)
 
@@ -165,9 +161,6 @@ class Moderation(commands.Cog):
     @commands.has_permissions(administrator=True)
     @commands.guild_only()
     async def unhideall(self, ctx):
-        if not (ctx.author == ctx.guild.owner or ctx.author.top_role.position > ctx.guild.me.top_role.position):
-            return await ctx.send(embed=discord.Embed(title="⛔ Denied", description="Your role must be above mine.", color=self.color))
-
         button = Button(label="Confirm", style=discord.ButtonStyle.green, emoji=TICK)
         button1 = Button(label="Cancel", style=discord.ButtonStyle.red, emoji=CROSS)
 
@@ -254,9 +247,16 @@ class Moderation(commands.Cog):
         await ctx.reply(embed=embed, view=view, mention_author=False, delete_after=30)
 
     # ----- SLOWMODE -----
+    # NOTE: was gated on manage_messages, but slowmode is a "Manage Channels" action
+    # in Discord's own permission model. Fixed both the user-facing check and the
+    # bot's own required permission so this doesn't 403 for a bot that has Manage
+    # Messages but not Manage Channels.
     @commands.hybrid_command(name="slowmode", help="Set slowmode (max 120s).", aliases=["slow"])
-    @commands.has_permissions(manage_messages=True)
+    @commands.has_permissions(manage_channels=True)
+    @commands.bot_has_permissions(manage_channels=True)
     async def slowmode(self, ctx, seconds: int = 0):
+        if seconds < 0:
+            return await ctx.send(embed=discord.Embed(color=self.color, description="Slowmode delay can't be negative."))
         if seconds > 120:
             return await ctx.send(embed=discord.Embed(color=self.color, description="Max 120 seconds."))
         await ctx.channel.edit(slowmode_delay=seconds)
@@ -265,8 +265,8 @@ class Moderation(commands.Cog):
 
     # ----- UNSLOWMODE -----
     @commands.hybrid_command(name="unslowmode", help="Disable slowmode.", aliases=["unslow"])
-    @commands.has_permissions(manage_messages=True)
-    @commands.bot_has_permissions(manage_messages=True)
+    @commands.has_permissions(manage_channels=True)
+    @commands.bot_has_permissions(manage_channels=True)
     async def unslowmode(self, ctx):
         await ctx.channel.edit(slowmode_delay=0)
         await ctx.send(embed=discord.Embed(color=discord.Color.green(), description="Slowmode disabled."))
