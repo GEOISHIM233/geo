@@ -3,7 +3,7 @@
   "name": "BeZmerz",
   "environments": {
     "production": {
-      "memory": "512MB",
+      "memory": "1GB",
       "cpu": 1
     }
   },
@@ -15,7 +15,9 @@
       "env": {
         "DISCORD_TOKEN": "$DISCORD_TOKEN",
         "OPENROUTER_API_KEY": "$OPENROUTER_API_KEY",
-        "DATABASE_URL": "$DATABASE_URL"
+        "DATABASE_URL": "$DATABASE_URL",
+        "API_ENABLED": "true",
+        "API_PORT": "8000"
       }
     },
     {
@@ -23,7 +25,8 @@
       "type": "web",
       "start": "uvicorn api.main:app --host 0.0.0.0 --port $PORT",
       "env": {
-        "PORT": "$PORT"
+        "PORT": "$PORT",
+        "DATABASE_URL": "$DATABASE_URL"
       }
     }
   ]
