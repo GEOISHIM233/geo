@@ -1,219 +1,250 @@
-# ╔══════════════════════════════════════════════════════════════════╗
-# ║            © 2026 Bezms — All Rights Reserved                   ║
-# ║   discord  ──  https://discord.gg/9nKHrnWZqV                    ║
-# ╚══════════════════════════════════════════════════════════════════╝
-
-import os
-import asyncio
-import traceback
-import aiohttp
 import discord
 from discord.ext import commands
-from core import Context
-from core.zyrox import zyrox
-from utils.Tools import *
-from utils.config import *
-from utils.emoji import SUCCESS, ERROR, TICK, CROSS
-from utils.sync_emojis import run_sync
-import jishaku
+import os
+import asyncio
+import aiosqlite
+import json
+import sys
 
-# --- FastAPI imports ---
-from fastapi import FastAPI, HTTPException, Header
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-import threading
+# ─── CREATE DB FOLDER ────────────────────────────────────────────────
+os.makedirs('db', exist_ok=True)
 
-os.environ["JISHAKU_NO_DM_TRACEBACK"] = "False"
-os.environ["JISHAKU_HIDE"] = "True"
-os.environ["JISHAKU_NO_UNDERSCORE"] = "True"
-os.environ["JISHAKU_FORCE_PAGINATOR"] = "True"
-
-from dotenv import load_dotenv
-load_dotenv()
+# ─── BOT SETUP ──────────────────────────────────────────────────────
+intents = discord.Intents.all()
+bot = commands.Bot(command_prefix='>', intents=intents, help_command=None)
 
 TOKEN = os.getenv("TOKEN")
-API_ENABLED = os.getenv("API_ENABLED", "false").lower() == "true"
-DASHBOARD_API_KEY = os.getenv("DASHBOARD_API_KEY", "")
+if not TOKEN:
+    print("❌ No TOKEN found! Set TOKEN in environment variables.")
+    sys.exit(1)
 
-# --- Configuration (replace with your channel IDs) ---
-SERVER_COUNT_CHANNEL_ID = 1419729255977189467
-USER_COUNT_CHANNEL_ID = 1419729283861184632
-LOG_CHANNEL_ID = 1396794297386532978
+# ─── DATABASE SETUP ─────────────────────────────────────────────────
+async def init_db():
+    async with aiosqlite.connect('db/bot.db') as db:
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS prefixes (
+                guild_id INTEGER PRIMARY KEY,
+                prefix TEXT DEFAULT '>'
+            )
+        ''')
+        await db.commit()
+        print("✅ Database initialized.")
 
-client = zyrox()
-tree = client.tree
+# ─── HELP COMMAND ──────────────────────────────────────────────────
+@bot.command(name='help')
+async def help_command(ctx):
+    embed = discord.Embed(
+        title="📋 Bezms Bot Commands",
+        description="Here are all the commands you can use:",
+        color=0x00FF00
+    )
+    embed.add_field(name=">help", value="Show this help menu", inline=False)
+    embed.add_field(name=">ping", value="Check bot latency", inline=False)
+    embed.add_field(name=">purge <amount>", value="Delete messages (max 10000)", inline=False)
+    embed.add_field(name=">lockall", value="Lock all channels (Admin only)", inline=False)
+    embed.add_field(name=">unlockall", value="Unlock all channels (Admin only)", inline=False)
+    embed.add_field(name=">hideall", value="Hide all channels (Admin only)", inline=False)
+    embed.add_field(name=">unhideall", value="Unhide all channels (Admin only)", inline=False)
+    embed.add_field(name=">give @user @role", value="Give or remove a role", inline=False)
+    embed.add_field(name=">nuke", value="Nuke a channel (delete and recreate)", inline=False)
+    embed.add_field(name=">slowmode <seconds>", value="Set slowmode (max 120s)", inline=False)
+    embed.add_field(name=">unslowmode", value="Disable slowmode", inline=False)
+    embed.add_field(name=">gtfo @user <reason>", value="Kick/ban a bad user", inline=False)
+    embed.add_field(name=">leave setup", value="Setup goodbye messages", inline=False)
+    embed.add_field(name=">ticket setup", value="Setup ticket system", inline=False)
+    embed.add_field(name=">botchannel set #channel", value="Set bot command channel", inline=False)
+    embed.add_field(name=">prefix <new>", value="Change bot prefix", inline=False)
+    embed.set_footer(text="Bezms Bot • Support: https://discord.gg/9nKHrnWZqV")
+    embed.timestamp = discord.utils.utcnow()
+    await ctx.send(embed=embed)
 
-# --- Completely disable Lavalink ---
-os.environ["LAVALINK_HOST"] = ""
-os.environ["LAVALINK_PORT"] = "0"
-print("⚠️ Lavalink disabled. Music commands will not work.")
+# ─── PING COMMAND ──────────────────────────────────────────────────
+@bot.command(name='ping')
+async def ping(ctx):
+    await ctx.send(f"🏓 Pong! `{round(bot.latency * 1000)}ms`")
 
-async def update_stats():
-    await client.wait_until_ready()
-    while not client.is_closed():
+# ─── PURGE COMMAND ─────────────────────────────────────────────────
+@bot.command(name='purge', aliases=['clean'])
+@commands.has_permissions(manage_messages=True)
+async def purge(ctx, amount: int = None):
+    if amount is None:
+        amount = 10000
+    if amount < 1:
+        return await ctx.send("❌ Must delete at least 1 message.")
+    if amount > 10000:
+        return await ctx.send("❌ Max 10000 messages.")
+    
+    deleted = await ctx.channel.purge(limit=amount + 1)
+    await ctx.send(f"✅ Deleted {len(deleted)-1} messages.", delete_after=5)
+
+# ─── LOCKALL ──────────────────────────────────────────────────────
+@bot.command(name='lockall')
+@commands.has_permissions(administrator=True)
+async def lockall(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.send("❌ You need Administrator permission.")
+    count = 0
+    for ch in ctx.guild.channels:
         try:
-            servers = len(client.guilds)
-            users = sum(g.member_count for g in client.guilds if g.member_count)
-            server_channel = client.get_channel(SERVER_COUNT_CHANNEL_ID)
-            user_channel = client.get_channel(USER_COUNT_CHANNEL_ID)
-            if server_channel:
-                await server_channel.edit(name=f"Servers: {servers}")
-            if user_channel:
-                await user_channel.edit(name=f"Users: {users}")
-        except Exception as e:
-            print(f"Stats error: {e}")
-        await asyncio.sleep(600)
-
-async def sync_commands():
-    await client.wait_until_ready()
-    try:
-        synced = await client.tree.sync()
-        all_cmds = list(client.commands)
-        print(f"✅ Synced {len(all_cmds)} text commands and {len(synced)} slash commands")
-        if len(synced) == 0:
-            print("⚠️ No slash commands synced – check cogs loading.")
-    except Exception as e:
-        print(f"❌ Sync error: {e}")
-
-original_setup_hook = client.setup_hook
-async def new_setup_hook():
-    await original_setup_hook()
-    client.loop.create_task(sync_commands())
-    client.loop.create_task(update_stats())
-client.setup_hook = new_setup_hook
-
-# --- Event Handlers ---
-@client.event
-async def on_ready():
-    await client.wait_until_ready()
-    print("""
-\033[1;31m
- ██████╗ ██████╗ ██████╗ ███████╗██╗  ██╗
-██╔════╝██╔═══██╗██╔══██╗██╔════╝╚██╗██╔╝
-██║     ██║   ██║██║  ██║█████╗   ╚███╔╝
-██║     ██║   ██║██║  ██║██╔══╝   ██╔██╗
-╚██████╗╚██████╔╝██████╔╝███████╗██╔╝ ██╗
- ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝
-\033[0m
-""")
-    print("Loaded & Online!")
-    print(f"Logged in as: {client.user}")
-    print(f"Connected to: {len(client.guilds)} guilds")
-    print(f"Connected to: {len(client.users)} users")
-    print("Bot Name: Bezms Bot")
-    print(f"Support Server: https://discord.gg/9nKHrnWZqV")
-    await run_sync(TOKEN)
-    try:
-        synced = await client.tree.sync()
-        print(f"✅ Force sync: {len(synced)} slash commands synced")
-    except Exception as e:
-        print(f"❌ Force sync failed: {e}")
-
-@client.event
-async def on_guild_join(guild: discord.Guild):
-    log = client.get_channel(LOG_CHANNEL_ID)
-    if log:
-        await log.send(f"Added to: **{guild.name}** (`{guild.id}`)")
-    try:
-        await client.tree.sync()
-        print(f"✅ Synced for new guild: {guild.name}")
-    except Exception as e:
-        print(f"❌ Sync failed for {guild.name}: {e}")
-
-@client.event
-async def on_command_completion(ctx: commands.Context):
-    if ctx.author.id in OWNER_IDS:
-        return
-    webhook_url = CMD_WEBHOOK_URL
-    async with aiohttp.ClientSession() as session:
-        webhook = discord.Webhook.from_url(webhook_url, session=session)
-        embed = discord.Embed(color=0xFF0000)
-        embed.set_author(name=f"Cmd: {ctx.command.qualified_name}", icon_url=ctx.author.display_avatar.url)
-        embed.set_thumbnail(url=ctx.author.display_avatar.url)
-        embed.add_field(name="User", value=f"{ctx.author} (`{ctx.author.id}`)", inline=False)
-        if ctx.guild:
-            embed.add_field(name="Server", value=f"{ctx.guild.name} (`{ctx.guild.id}`)", inline=False)
-            embed.add_field(name="Channel", value=f"{ctx.channel.mention} (`{ctx.channel.id}`)", inline=False)
-        embed.timestamp = discord.utils.utcnow()
-        try:
-            await webhook.send(embed=embed)
+            await ch.set_permissions(ctx.guild.default_role, send_messages=False)
+            count += 1
         except:
             pass
+    await ctx.send(f"🔒 Locked {count} channels.")
 
-@client.event
-async def on_guild_remove(guild: discord.Guild):
-    log = client.get_channel(LOG_CHANNEL_ID)
-    if log:
-        await log.send(f"Removed from: **{guild.name}** (`{guild.id}`)")
+# ─── UNLOCKALL ────────────────────────────────────────────────────
+@bot.command(name='unlockall')
+@commands.has_permissions(administrator=True)
+async def unlockall(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.send("❌ You need Administrator permission.")
+    count = 0
+    for ch in ctx.guild.channels:
+        try:
+            await ch.set_permissions(ctx.guild.default_role, send_messages=True)
+            count += 1
+        except:
+            pass
+    await ctx.send(f"🔓 Unlocked {count} channels.")
 
-# --- FastAPI Server ---
-if API_ENABLED:
-    app = FastAPI(title="Bezms Bot API", version="1.0")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# ─── HIDEALL ──────────────────────────────────────────────────────
+@bot.command(name='hideall')
+@commands.has_permissions(administrator=True)
+async def hideall(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.send("❌ You need Administrator permission.")
+    count = 0
+    for ch in ctx.guild.channels:
+        try:
+            await ch.set_permissions(ctx.guild.default_role, view_channel=False)
+            count += 1
+        except:
+            pass
+    await ctx.send(f"🙈 Hidden {count} channels.")
 
-    @app.get("/")
-    async def root():
-        return {"status": "online", "bot": client.user.name if client.user else "Unknown"}
+# ─── UNHIDEALL ────────────────────────────────────────────────────
+@bot.command(name='unhideall')
+@commands.has_permissions(administrator=True)
+async def unhideall(ctx):
+    if not ctx.author.guild_permissions.administrator:
+        return await ctx.send("❌ You need Administrator permission.")
+    count = 0
+    for ch in ctx.guild.channels:
+        try:
+            await ch.set_permissions(ctx.guild.default_role, view_channel=True)
+            count += 1
+        except:
+            pass
+    await ctx.send(f"👀 Unhidden {count} channels.")
 
-    @app.get("/health")
-    async def health():
-        return {"status": "ok"}
+# ─── GIVE ─────────────────────────────────────────────────────────
+@bot.command(name='give', aliases=['addrole'])
+@commands.has_permissions(manage_roles=True)
+async def give(ctx, member: discord.Member, *, role: discord.Role):
+    if role >= ctx.guild.me.top_role:
+        return await ctx.send("❌ I can't manage that role.")
+    if role in member.roles:
+        await member.remove_roles(role)
+        await ctx.send(f"✅ Removed {role.name} from {member.mention}")
+    else:
+        await member.add_roles(role)
+        await ctx.send(f"✅ Added {role.name} to {member.mention}")
 
-    @app.get("/guilds")
-    async def get_guilds(api_key: str = Header(...)):
-        if api_key != DASHBOARD_API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid API key")
-        if not client.is_ready():
-            return {"guilds": []}
-        guilds = []
-        for g in client.guilds:
-            guilds.append({
-                "id": str(g.id),
-                "name": g.name,
-                "icon": g.icon.url if g.icon else None,
-                "member_count": g.member_count,
-                "owner_id": str(g.owner_id)
-            })
-        return {"guilds": guilds}
+# ─── NUKE ──────────────────────────────────────────────────────────
+@bot.command(name='nuke')
+@commands.has_permissions(manage_channels=True)
+async def nuke(ctx):
+    channel = ctx.channel
+    new = await channel.clone()
+    await new.edit(position=channel.position)
+    await channel.delete()
+    await new.send(f"💥 Channel nuked by {ctx.author.mention}")
 
-    @app.get("/guild/{guild_id}")
-    async def get_guild(guild_id: str, api_key: str = Header(...)):
-        if api_key != DASHBOARD_API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid API key")
-        guild = client.get_guild(int(guild_id))
-        if not guild:
-            raise HTTPException(status_code=404, detail="Guild not found")
-        return {
-            "id": str(guild.id),
-            "name": guild.name,
-            "icon": guild.icon.url if guild.icon else None,
-            "member_count": guild.member_count,
-            "owner_id": str(guild.owner_id),
-            "channels": [{"id": str(c.id), "name": c.name, "type": str(c.type)} for c in guild.channels],
-            "roles": [{"id": str(r.id), "name": r.name, "color": r.color.value} for r in guild.roles]
-        }
+# ─── SLOWMODE ─────────────────────────────────────────────────────
+@bot.command(name='slowmode', aliases=['slow'])
+@commands.has_permissions(manage_channels=True)
+async def slowmode(ctx, seconds: int = 0):
+    if seconds < 0 or seconds > 120:
+        return await ctx.send("❌ Slowmode must be 0-120 seconds.")
+    await ctx.channel.edit(slowmode_delay=seconds)
+    await ctx.send(f"⏱️ Slowmode set to {seconds}s" if seconds > 0 else "⏱️ Slowmode disabled.")
 
-    def run_api():
-        port = int(os.environ.get("PORT", 8000))
-        uvicorn.run(app, host="0.0.0.0", port=port)
+# ─── UNSLOWMODE ───────────────────────────────────────────────────
+@bot.command(name='unslowmode', aliases=['unslow'])
+@commands.has_permissions(manage_channels=True)
+async def unslowmode(ctx):
+    await ctx.channel.edit(slowmode_delay=0)
+    await ctx.send("⏱️ Slowmode disabled.")
 
-    api_thread = threading.Thread(target=run_api, daemon=True)
-    api_thread.start()
-    print(f"✅ API server started on port {os.environ.get('PORT', 8000)}")
-else:
-    print("⚠️ API is disabled (API_ENABLED not set to true)")
+# ─── GTFO ─────────────────────────────────────────────────────────
+@bot.command(name='gtfo', aliases=['yeet'])
+@commands.has_permissions(kick_members=True)
+async def gtfo(ctx, member: discord.Member, *, reason: str = "No reason"):
+    if ctx.author.top_role <= member.top_role:
+        return await ctx.send("❌ You can't kick someone with higher/equal role.")
+    if member.guild_permissions.kick_members or member.guild_permissions.ban_members:
+        try:
+            await member.ban(reason=reason)
+            await ctx.send(f"🔨 Banned {member.mention} (had mod perms). Reason: {reason}")
+        except:
+            await ctx.send("❌ Failed to ban.")
+    else:
+        try:
+            await member.kick(reason=reason)
+            await ctx.send(f"👢 Kicked {member.mention}. Reason: {reason}")
+        except:
+            await ctx.send("❌ Failed to kick.")
 
-if __name__ == "__main__":
+# ─── PREFIX ───────────────────────────────────────────────────────
+@bot.command(name='prefix')
+@commands.has_permissions(administrator=True)
+async def set_prefix(ctx, new_prefix: str):
+    async with aiosqlite.connect('db/bot.db') as db:
+        await db.execute('INSERT OR REPLACE INTO prefixes (guild_id, prefix) VALUES (?, ?)', (ctx.guild.id, new_prefix))
+        await db.commit()
+    await ctx.send(f"✅ Prefix changed to `{new_prefix}`")
+
+async def get_prefix(bot, message):
+    if not message.guild:
+        return '>'
+    async with aiosqlite.connect('db/bot.db') as db:
+        async with db.execute('SELECT prefix FROM prefixes WHERE guild_id = ?', (message.guild.id,)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else '>'
+
+bot.get_prefix = get_prefix
+
+# ─── LEAVE SYSTEM (Basic) ─────────────────────────────────────────
+leave_channel_cache = {}
+
+@bot.command(name='leave_setup')
+@commands.has_permissions(administrator=True)
+async def leave_setup(ctx):
+    leave_channel_cache[ctx.guild.id] = ctx.channel.id
+    await ctx.send(f"✅ Goodbye messages will be sent to {ctx.channel.mention}")
+
+@bot.event
+async def on_member_remove(member):
+    if member.guild.id in leave_channel_cache:
+        channel = member.guild.get_channel(leave_channel_cache[member.guild.id])
+        if channel:
+            embed = discord.Embed(
+                title="👋 Goodbye!",
+                description=f"**{member.display_name}** has left the server.",
+                color=0xFF4444
+            )
+            embed.set_thumbnail(url=member.display_avatar.url)
+            await channel.send(embed=embed)
+
+# ─── START BOT ─────────────────────────────────────────────────────
+async def main():
+    await init_db()
     try:
-        client.run(TOKEN)
-    except discord.LoginFailure:
-        print("Invalid token. Check TOKEN env var.")
+        await bot.start(TOKEN)
+    except KeyboardInterrupt:
+        print("Bot stopped.")
     except Exception as e:
         print(f"Error: {e}")
-        traceback.print_exc()
+
+if __name__ == "__main__":
+    asyncio.run(main())
