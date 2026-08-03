@@ -1,8 +1,30 @@
 {
-  "deploy": {
-    "startCommand": "cd bot && python CodeX.py",
-    "restartPolicy": "on-failure",
-    "restartPolicyMaxRetries": 5
-  }
+  "$schema": "https://railway.app/railway.schema.json",
+  "name": "BeZmerz",
+  "environments": {
+    "production": {
+      "memory": "512MB",
+      "cpu": 1
+    }
+  },
+  "services": [
+    {
+      "name": "bot",
+      "type": "process",
+      "start": "python CodeX.py",
+      "env": {
+        "DISCORD_TOKEN": "$DISCORD_TOKEN",
+        "OPENROUTER_API_KEY": "$OPENROUTER_API_KEY",
+        "DATABASE_URL": "$DATABASE_URL"
+      }
+    },
+    {
+      "name": "api",
+      "type": "web",
+      "start": "uvicorn api.main:app --host 0.0.0.0 --port $PORT",
+      "env": {
+        "PORT": "$PORT"
+      }
+    }
+  ]
 }
-
