@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import re
-import sqlite3
 import threading
 import time
 from pathlib import Path
@@ -11,7 +10,7 @@ from typing import Optional
 import aiohttp
 import aiosqlite
 import discord
-from discord import Embed, File, Member, Role, TextChannel
+from discord import Embed
 from discord.ext import commands, tasks
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -28,11 +27,9 @@ ROLEPERMS_DB = DB_DIR / "roleperms.db"
 
 DEFAULT_PREFIX = os.getenv("BOT_PREFIX", ">").strip() or ">"
 BOT_NAME = os.getenv("BOT_NAME", "Bezms Bot")
-BOT_PREFIX_DISPLAY = os.getenv("BOT_PREFIX", ">").strip() or ">"
 OWNER_IDS = [int(x.strip()) for x in os.getenv("OWNER_IDS", "").split(",") if x.strip().isdigit()]
 API_ENABLED = os.getenv("API_ENABLED", "false").lower() in ("true", "1", "yes")
 API_PORT = int(os.getenv("API_PORT", "8000"))
-API_KEY = os.getenv("DASHBOARD_API_KEY", "")
 
 intents = discord.Intents.default()
 intents.guilds = True
@@ -73,53 +70,6 @@ ROLE_COMMAND_MAP = {
     "support": {"mute", "warn", "slowmode", "unslowmode", "purge"},
     "trial": {"purge", "slowmode", "unslowmode"},
     "junior": {"purge", "slowmode", "unslowmode"},
-}
-
-PERMISSION_COMMANDS = {
-    "help",
-    "ping",
-    "purge",
-    "lockall",
-    "unlockall",
-    "hideall",
-    "unhideall",
-    "give",
-    "nuke",
-    "slowmode",
-    "unslowmode",
-    "gtfo",
-    "kick",
-    "ban",
-    "mute",
-    "unmute",
-    "warn",
-    "ticket_close",
-    "leave_setup",
-    "leave_reset",
-    "leave_test",
-    "leave_config",
-    "leave_edit",
-    "leave_autodelete",
-    "ticket_setup",
-    "ticket_panel",
-    "ticket_create",
-    "ticket_close",
-    "tiktok_setup",
-    "tiktok_channel",
-    "tiktok_username",
-    "tiktok_role",
-    "tiktok_interval",
-    "tiktok_test",
-    "tiktok_status",
-    "tiktok_disable",
-    "botchannel_set",
-    "botchannel_remove",
-    "botchannel_status",
-    "roleperms_refresh",
-    "roleperms_add",
-    "roleperms_remove",
-    "roleperms_list",
-    "prefix",
 }
 
 WELCOME_DEFAULT_MESSAGE = "{user} left {server}. We now have {member_count} members."
@@ -226,7 +176,12 @@ async def remove_bot_channel(guild_id: int):
 
 
 async def get_leave_config(guild_id: int):
-    return await execute_sql(LEAVE_DB, "SELECT channel_id, mode, message, autodelete, embed FROM leave_config WHERE guild_id = ?", (guild_id,), fetchone=True)
+    return await execute_sql(
+        LEAVE_DB,
+        "SELECT channel_id, mode, message, autodelete, embed FROM leave_config WHERE guild_id = ?",
+        (guild_id,),
+        fetchone=True,
+    )
 
 
 async def update_leave_config(guild_id: int, channel_id: int, mode: str, message: str, autodelete: int, embed: bool):
@@ -238,19 +193,21 @@ async def update_leave_config(guild_id: int, channel_id: int, mode: str, message
 
 
 async def update_leave_message(guild_id: int, message: str):
-    await execute_sql(
-        LEAVE_DB,
-        "INSERT OR REPLACE INTO leave_config(guild_id, channel_id, mode, message, autodelete, embed) VALUES(?, COALESCE((SELECT channel_id FROM leave_config WHERE guild_id = ?), 0), COALESCE((SELECT mode FROM leave_config WHERE guild_id = ?), 'simple'), ?, COALESCE((SELECT autodelete FROM leave_config WHERE guild_id = ?), 0), COALESCE((SELECT embed FROM leave_config WHERE guild_id = ?), 0))",
-        (guild_id, guild_id, guild_id, message, guild_id, guild_id),
-    )
+    current = await get_leave_config(guild_id)
+    if current:
+        channel_id, mode, _, autodelete, embed_flag = current
+        await update_leave_config(guild_id, channel_id, mode, message, autodelete, bool(embed_flag))
+    else:
+        await update_leave_config(guild_id, 0, "simple", message, 0, False)
 
 
 async def update_leave_autodelete(guild_id: int, autodelete: int):
-    await execute_sql(
-        LEAVE_DB,
-        "UPDATE leave_config SET autodelete = ? WHERE guild_id = ?",
-        (autodelete, guild_id),
-    )
+    current = await get_leave_config(guild_id)
+    if not current:
+        await update_leave_config(guild_id, 0, "simple", WELCOME_DEFAULT_MESSAGE, autodelete, False)
+        return
+    channel_id, mode, message, _, embed_flag = current
+    await update_leave_config(guild_id, channel_id, mode, message, autodelete, bool(embed_flag))
 
 
 async def reset_leave_config(guild_id: int):
@@ -258,7 +215,12 @@ async def reset_leave_config(guild_id: int):
 
 
 async def get_ticket_config(guild_id: int):
-    return await execute_sql(TICKETS_DB, "SELECT category_id, role_id FROM ticket_config WHERE guild_id = ?", (guild_id,), fetchone=True)
+    return await execute_sql(
+        TICKETS_DB,
+        "SELECT category_id, role_id FROM ticket_config WHERE guild_id = ?",
+        (guild_id,),
+        fetchone=True,
+    )
 
 
 async def set_ticket_config(guild_id: int, category_id: int, role_id: int):
@@ -281,7 +243,7 @@ async def get_open_ticket_count(guild_id: int, user_id: int) -> int:
     row = await execute_sql(
         TICKETS_DB,
         "SELECT COUNT(*) FROM ticket_open WHERE guild_id = ? AND user_id = ? AND open = 1",
-        (guild_id, user_id,),
+        (guild_id, user_id),
         fetchone=True,
     )
     return int(row[0]) if row else 0
@@ -313,56 +275,74 @@ async def get_tiktok_config(guild_id: int):
     )
 
 
-async def set_tiktok_channel(guild_id: int, channel_id: int):
+async def upsert_tiktok_config(guild_id: int, channel_id: int = 0, username: str = "", role_id: int = 0, interval: int = 5, last_video_id: str = "", enabled: int = 1, last_checked: int = 0):
     await execute_sql(
         TIKTOK_DB,
-        "INSERT OR REPLACE INTO tiktok_config(guild_id, channel_id, username, role_id, interval, last_video_id, enabled, last_checked) VALUES(?, ?, COALESCE((SELECT username FROM tiktok_config WHERE guild_id = ?), ''), COALESCE((SELECT role_id FROM tiktok_config WHERE guild_id = ?), 0), COALESCE((SELECT interval FROM tiktok_config WHERE guild_id = ?), 5), COALESCE((SELECT last_video_id FROM tiktok_config WHERE guild_id = ?), ''), COALESCE((SELECT enabled FROM tiktok_config WHERE guild_id = ?), 1), COALESCE((SELECT last_checked FROM tiktok_config WHERE guild_id = ?), 0))",
-        (guild_id, channel_id, guild_id, guild_id, guild_id, guild_id, guild_id, guild_id),
+        "INSERT OR REPLACE INTO tiktok_config(guild_id, channel_id, username, role_id, interval, last_video_id, enabled, last_checked) VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+        (guild_id, channel_id, username, role_id, interval, last_video_id, enabled, last_checked),
     )
+
+
+async def set_tiktok_channel(guild_id: int, channel_id: int):
+    config = await get_tiktok_config(guild_id)
+    if config:
+        _, username, role_id, interval, last_video_id, enabled, last_checked = config
+        await upsert_tiktok_config(guild_id, channel_id, username or "", role_id or 0, interval or 5, last_video_id or "", enabled or 1, last_checked or 0)
+        return
+    await upsert_tiktok_config(guild_id, channel_id=channel_id)
 
 
 async def set_tiktok_username(guild_id: int, username: str):
-    await execute_sql(
-        TIKTOK_DB,
-        "INSERT OR REPLACE INTO tiktok_config(guild_id, channel_id, username, role_id, interval, last_video_id, enabled, last_checked) VALUES(?, COALESCE((SELECT channel_id FROM tiktok_config WHERE guild_id = ?), 0), ?, COALESCE((SELECT role_id FROM tiktok_config WHERE guild_id = ?), 0), COALESCE((SELECT interval FROM tiktok_config WHERE guild_id = ?), 5), COALESCE((SELECT last_video_id FROM tiktok_config WHERE guild_id = ?), ''), COALESCE((SELECT enabled FROM tiktok_config WHERE guild_id = ?), 1), COALESCE((SELECT last_checked FROM tiktok_config WHERE guild_id = ?), 0))",
-        (guild_id, guild_id, username, guild_id, guild_id, guild_id, guild_id, guild_id),
-    )
+    config = await get_tiktok_config(guild_id)
+    if config:
+        channel_id, _, role_id, interval, last_video_id, enabled, last_checked = config
+        await upsert_tiktok_config(guild_id, channel_id, username, role_id or 0, interval or 5, last_video_id or "", enabled or 1, last_checked or 0)
+        return
+    await upsert_tiktok_config(guild_id, username=username)
 
 
 async def set_tiktok_role(guild_id: int, role_id: int):
-    await execute_sql(
-        TIKTOK_DB,
-        "INSERT OR REPLACE INTO tiktok_config(guild_id, channel_id, username, role_id, interval, last_video_id, enabled, last_checked) VALUES(?, COALESCE((SELECT channel_id FROM tiktok_config WHERE guild_id = ?), 0), COALESCE((SELECT username FROM tiktok_config WHERE guild_id = ?), ''), ?, COALESCE((SELECT interval FROM tiktok_config WHERE guild_id = ?), 5), COALESCE((SELECT last_video_id FROM tiktok_config WHERE guild_id = ?), ''), COALESCE((SELECT enabled FROM tiktok_config WHERE guild_id = ?), 1), COALESCE((SELECT last_checked FROM tiktok_config WHERE guild_id = ?), 0))",
-        (guild_id, guild_id, guild_id, role_id, guild_id, guild_id, guild_id, guild_id),
-    )
+    config = await get_tiktok_config(guild_id)
+    if config:
+        channel_id, username, _, interval, last_video_id, enabled, last_checked = config
+        await upsert_tiktok_config(guild_id, channel_id, username or "", role_id, interval or 5, last_video_id or "", enabled or 1, last_checked or 0)
+        return
+    await upsert_tiktok_config(guild_id, role_id=role_id)
 
 
 async def set_tiktok_interval(guild_id: int, interval: int):
-    await execute_sql(
-        TIKTOK_DB,
-        "UPDATE tiktok_config SET interval = ? WHERE guild_id = ?",
-        (interval, guild_id),
-    )
+    config = await get_tiktok_config(guild_id)
+    if config:
+        channel_id, username, role_id, _, last_video_id, enabled, last_checked = config
+        await upsert_tiktok_config(guild_id, channel_id, username or "", role_id or 0, interval, last_video_id or "", enabled or 1, last_checked or 0)
+        return
+    await upsert_tiktok_config(guild_id, interval=interval)
 
 
 async def set_tiktok_enabled(guild_id: int, enabled: bool):
-    await execute_sql(
-        TIKTOK_DB,
-        "UPDATE tiktok_config SET enabled = ?, last_checked = ? WHERE guild_id = ?",
-        (1 if enabled else 0, 0 if enabled else int(time.time()), guild_id),
-    )
+    config = await get_tiktok_config(guild_id)
+    if config:
+        channel_id, username, role_id, interval, last_video_id, _, _ = config
+        await upsert_tiktok_config(guild_id, channel_id, username or "", role_id or 0, interval or 5, last_video_id or "", 1 if enabled else 0, int(time.time()) if not enabled else 0)
+        return
+    await upsert_tiktok_config(guild_id, enabled=0 if not enabled else 1)
 
 
 async def set_tiktok_last_video(guild_id: int, video_id: str):
-    await execute_sql(
-        TIKTOK_DB,
-        "UPDATE tiktok_config SET last_video_id = ?, last_checked = ? WHERE guild_id = ?",
-        (video_id, int(time.time()), guild_id),
-    )
+    config = await get_tiktok_config(guild_id)
+    if config:
+        channel_id, username, role_id, interval, _, enabled, last_checked = config
+        await upsert_tiktok_config(guild_id, channel_id, username or "", role_id or 0, interval or 5, video_id, enabled or 1, int(time.time()))
+        return
+    await upsert_tiktok_config(guild_id, last_video_id=video_id, last_checked=int(time.time()))
 
 
 async def get_all_tiktok_configs():
-    return await execute_sql(TIKTOK_DB, "SELECT guild_id, channel_id, username, role_id, interval, last_video_id, enabled, last_checked FROM tiktok_config", fetchall=True)
+    return await execute_sql(
+        TIKTOK_DB,
+        "SELECT guild_id, channel_id, username, role_id, interval, last_video_id, enabled, last_checked FROM tiktok_config",
+        fetchall=True,
+    )
 
 
 async def upsert_role_permission(guild_id: int, role_name: str, command: str, custom: int = 1):
@@ -390,68 +370,49 @@ async def get_role_permissions_db(guild_id: int):
     )
 
 
-async def find_role_permission_command(guild_id: int, role_name: str, command: str):
-    return await execute_sql(
-        ROLEPERMS_DB,
-        "SELECT 1 FROM role_permissions WHERE guild_id = ? AND role_name = ? AND command = ?",
-        (guild_id, role_name.lower(), command),
-        fetchone=True,
-    )
-
-
 async def normalize_command_name(value: str) -> str:
     return value.lower().replace(" ", "_").replace("-", "_")
 
 
-async def user_has_command_permission(member: Member, command_name: str) -> bool:
+async def user_has_command_permission(member: discord.Member, command_name: str) -> bool:
     if member.guild is None:
         return False
     if member.guild_permissions.administrator or member.id in OWNER_IDS:
         return True
 
-    command_name = (await normalize_command_name(command_name)).lower()
+    command_name = await normalize_command_name(command_name)
     config = await get_role_permissions_db(member.guild.id)
-    normalized_roles = {role.name.lower(): role for role in member.roles if role.name}
+    role_names = {role.name.lower() for role in member.roles if role.name}
 
     for role_name, command, _custom in config:
-        if command != command_name:
-            continue
-        if role_name in normalized_roles:
+        if command == command_name and role_name in role_names:
             return True
-
     return False
-
-
-async def load_role_permissions_for_role(guild: discord.Guild, role: Role):
-    normalized = role.name.lower()
-    matched = set()
-    for key, commands_set in ROLE_COMMAND_MAP.items():
-        if key in normalized:
-            matched.update(commands_set)
-    if not matched:
-        return 0
-    for command in matched:
-        await upsert_role_permission(guild.id, role.name, command, custom=0)
-    return len(matched)
 
 
 async def refresh_role_permissions(guild: discord.Guild) -> int:
     existing = await get_role_permissions_db(guild.id)
-    existing = {f"{role_name}:{permission}" for role_name, permission, _ in existing}
+    existing_set = {f"{role_name}:{permission}" for role_name, permission, _ in existing}
     total = 0
     for role in guild.roles:
-        normalized = role.name.lower()
+        name_lower = role.name.lower()
         for key, commands_set in ROLE_COMMAND_MAP.items():
-            if key in normalized:
+            if key in name_lower:
                 for command in commands_set:
-                    if f"{role.name.lower()}:{command}" not in existing:
+                    entry = f"{role.name.lower()}:{command}"
+                    if entry not in existing_set:
                         await upsert_role_permission(guild.id, role.name, command, custom=0)
                         total += 1
     return total
 
 
-async def format_leave_message(member: Member, message_template: str) -> str:
-    return message_template.replace("{user}", member.mention).replace("{server}", member.guild.name).replace("{member_count}", str(member.guild.member_count))
+async def format_leave_message(member: discord.Member, message_template: str) -> str:
+    return (
+        message_template
+        .replace("{user}", member.mention)
+        .replace("{server}", member.guild.name)
+        .replace("{member_count}", str(member.guild.member_count))
+    )
 
 
 class ConfirmationView(commands.View):
@@ -483,8 +444,8 @@ class LeaveSetupView(commands.View):
     def __init__(self, author: discord.Member):
         super().__init__(timeout=120)
         self.author = author
-        self.selected_channel: Optional[TextChannel] = None
-        self.mode: str = "simple"
+        self.selected_channel: Optional[discord.TextChannel] = None
+        self.mode = "simple"
         self.message = WELCOME_DEFAULT_MESSAGE
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -496,7 +457,9 @@ class LeaveSetupView(commands.View):
     @discord.ui.channel_select(placeholder="Select a goodbye channel", channel_types=[discord.ChannelType.text], min_values=1, max_values=1)
     async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
         self.selected_channel = select.values[0]
-        await interaction.response.send_message(f"Selected channel {self.selected_channel.mention}. Choose the mode and click Save.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Selected channel {self.selected_channel.mention}. Choose a mode and click Save.", ephemeral=True
+        )
 
     @discord.ui.button(label="Simple Mode", style=discord.ButtonStyle.primary)
     async def simple_mode(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -522,15 +485,19 @@ class LeaveSetupView(commands.View):
             self.mode == "embed",
         )
         self.stop()
-        await interaction.response.edit_message(content=f"Leave system configured in {self.selected_channel.mention} using {self.mode} mode.", embed=None, view=None)
+        await interaction.response.edit_message(
+            content=f"Leave system configured in {self.selected_channel.mention} using {self.mode} mode.",
+            embed=None,
+            view=None,
+        )
 
 
 class TicketSetupView(commands.View):
     def __init__(self, author: discord.Member):
         super().__init__(timeout=120)
         self.author = author
-        self.selected_channel: Optional[TextChannel] = None
-        self.selected_role: Optional[Role] = None
+        self.selected_category: Optional[discord.CategoryChannel] = None
+        self.selected_role: Optional[discord.Role] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user != self.author:
@@ -538,32 +505,39 @@ class TicketSetupView(commands.View):
             return False
         return True
 
-    @discord.ui.channel_select(placeholder="Select a tickets category channel", channel_types=[discord.ChannelType.text], min_values=1, max_values=1)
-    async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
-        self.selected_channel = select.values[0]
-        await interaction.response.send_message(f"Selected {self.selected_channel.mention} for ticket panels.", ephemeral=True)
+    @discord.ui.channel_select(placeholder="Select a ticket category", channel_types=[discord.ChannelType.category], min_values=1, max_values=1)
+    async def category_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
+        self.selected_category = select.values[0]
+        await interaction.response.send_message(
+            f"Selected category {self.selected_category.name}.", ephemeral=True
+        )
 
     @discord.ui.role_select(placeholder="Select a support role", min_values=1, max_values=1)
     async def role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
         self.selected_role = select.values[0]
-        await interaction.response.send_message(f"Selected support role {self.selected_role.mention}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Selected support role {self.selected_role.mention}.", ephemeral=True
+        )
 
     @discord.ui.button(label="Save", style=discord.ButtonStyle.success)
     async def save(self, button: discord.ui.Button, interaction: discord.Interaction):
-        if not self.selected_channel or not self.selected_role:
-            await interaction.response.send_message("Please pick both a channel and a support role.", ephemeral=True)
+        if not self.selected_category or not self.selected_role:
+            await interaction.response.send_message("Please select both a category and a support role.", ephemeral=True)
             return
-        await set_ticket_config(interaction.guild.id, self.selected_channel.category_id or 0, self.selected_role.id)
+        await set_ticket_config(interaction.guild.id, self.selected_category.id, self.selected_role.id)
         self.stop()
-        await interaction.response.edit_message(content=f"Ticket setup saved. Ticket category: {self.selected_channel.name}, Support role: {self.selected_role.name}.", view=None)
+        await interaction.response.edit_message(
+            content=f"Ticket setup saved. Category: {self.selected_category.name}, Support role: {self.selected_role.name}.",
+            view=None,
+        )
 
 
 class TikTokSetupView(commands.View):
     def __init__(self, author: discord.Member):
         super().__init__(timeout=120)
         self.author = author
-        self.selected_channel: Optional[TextChannel] = None
-        self.selected_role: Optional[Role] = None
+        self.selected_channel: Optional[discord.TextChannel] = None
+        self.selected_role: Optional[discord.Role] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user != self.author:
@@ -574,12 +548,16 @@ class TikTokSetupView(commands.View):
     @discord.ui.channel_select(placeholder="Select a TikTok notification channel", channel_types=[discord.ChannelType.text], min_values=1, max_values=1)
     async def channel_select(self, interaction: discord.Interaction, select: discord.ui.ChannelSelect):
         self.selected_channel = select.values[0]
-        await interaction.response.send_message(f"Notification channel set to {self.selected_channel.mention}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Notification channel set to {self.selected_channel.mention}.", ephemeral=True
+        )
 
     @discord.ui.role_select(placeholder="Select a mention role for new videos", min_values=1, max_values=1)
     async def role_select(self, interaction: discord.Interaction, select: discord.ui.RoleSelect):
         self.selected_role = select.values[0]
-        await interaction.response.send_message(f"Mention role set to {self.selected_role.mention}.", ephemeral=True)
+        await interaction.response.send_message(
+            f"Mention role set to {self.selected_role.mention}.", ephemeral=True
+        )
 
     @discord.ui.button(label="Save", style=discord.ButtonStyle.success)
     async def save(self, button: discord.ui.Button, interaction: discord.Interaction):
@@ -589,31 +567,33 @@ class TikTokSetupView(commands.View):
         await set_tiktok_channel(interaction.guild.id, self.selected_channel.id)
         await set_tiktok_role(interaction.guild.id, self.selected_role.id)
         self.stop()
-        await interaction.response.edit_message(content=f"TikTok notifications will post in {self.selected_channel.mention} and mention {self.selected_role.mention}. Use `>{'tiktok username <username>'}` next.", view=None)
+        await interaction.response.edit_message(
+            content=f"TikTok notifications will post in {self.selected_channel.mention} and mention {self.selected_role.mention}. Use `>tiktok username <username>` next.",
+            view=None,
+        )
 
 
 class TicketPanelView(commands.View):
-    def __init__(self, guild: discord.Guild):
+    def __init__(self):
         super().__init__(timeout=None)
-        self.guild = guild
 
     @discord.ui.button(label="Create Ticket", style=discord.ButtonStyle.primary, custom_id="ticket_panel_create")
     async def create(self, button: discord.ui.Button, interaction: discord.Interaction):
         if interaction.guild is None:
-            await interaction.response.send_message("Ticket creation must happen in a guild.", ephemeral=True)
+            await interaction.response.send_message("Ticket creation must happen in a server.", ephemeral=True)
             return
-        await create_ticket_channel(interaction)
-
-
-async def is_owner(member: discord.Member) -> bool:
-    return member.id in OWNER_IDS
+        channel = await create_ticket_for_member(interaction.guild, interaction.user)
+        if channel:
+            await interaction.response.send_message(f"Ticket created: {channel.mention}", ephemeral=True)
+        else:
+            await interaction.response.send_message("Unable to create a ticket. Check the ticket setup.", ephemeral=True)
 
 
 def admin_only():
     async def predicate(ctx: commands.Context) -> bool:
         if ctx.author.id in OWNER_IDS:
             return True
-        if ctx.author.guild is None:
+        if ctx.guild is None:
             raise commands.MissingPermissions(["administrator"])
         if ctx.author.guild_permissions.administrator:
             return True
@@ -623,7 +603,7 @@ def admin_only():
 
 def permission_required(command_name: str):
     async def predicate(ctx: commands.Context) -> bool:
-        if ctx.author.guild is None:
+        if ctx.guild is None:
             raise commands.CheckFailure("This command can only be used in a server.")
         if ctx.author.id in OWNER_IDS or ctx.author.guild_permissions.administrator:
             return True
@@ -643,7 +623,9 @@ async def enforce_bot_channel(ctx: commands.Context) -> bool:
         return True
     if ctx.channel.id == channel_id:
         return True
-    raise commands.CheckFailure(f"All bot commands are restricted to <#{channel_id}> in this server. Use DMs or the configured channel.")
+    raise commands.CheckFailure(
+        f"All bot commands are restricted to <#{channel_id}> in this server. Use DMs or the configured channel."
+    )
 
 
 @bot.event
@@ -659,10 +641,7 @@ async def on_ready():
 async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     if isinstance(error, commands.CommandNotFound):
         return
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.reply(str(error), mention_author=False)
-        return
-    if isinstance(error, commands.CheckFailure):
+    if isinstance(error, (commands.MissingPermissions, commands.CheckFailure)):
         await ctx.reply(str(error), mention_author=False)
         return
     await ctx.reply(f"An error occurred: {error}", mention_author=False)
@@ -670,13 +649,13 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 
 
 @bot.event
-async def on_member_remove(member: eas Member):
+async def on_member_remove(member: discord.Member):
     config = await get_leave_config(member.guild.id)
     if not config:
         return
     channel_id, mode, message, autodelete, embed_flag = config
     channel = member.guild.get_channel(channel_id)
-    if not isinstance(channel, TextChannel):
+    if not isinstance(channel, discord.TextChannel):
         return
     text = await format_leave_message(member, message or WELCOME_DEFAULT_MESSAGE)
     if embed_flag:
@@ -733,11 +712,7 @@ async def help_command(ctx: commands.Context):
         value="`roleperms refresh`, `roleperms add <role> <command>`, `roleperms remove <role> <command>`, `roleperms list`",
         inline=False,
     )
-    embed.add_field(
-        name="Prefix",
-        value="`prefix <new>`",
-        inline=False,
-    )
+    embed.add_field(name="Prefix", value="`prefix <new>`", inline=False)
     await ctx.reply(embed=embed, mention_author=False)
 
 
@@ -751,7 +726,7 @@ async def ping(ctx: commands.Context):
 async def purge(ctx: commands.Context, amount: int = 10000):
     amount = max(1, min(amount, 10000))
     deleted = await ctx.channel.purge(limit=amount + 1)
-    await ctx.send(f"Deleted {len(deleted) - 1} messages.", delete_after=10)
+    await ctx.send(f"Deleted {max(0, len(deleted) - 1)} messages.", delete_after=10)
 
 
 @bot.command(name="lockall")
@@ -878,7 +853,7 @@ async def ban(ctx: commands.Context, member: discord.Member, *, reason: Optional
     await ctx.send(f"Banned {member.mention}. Reason: {reason}")
 
 
-async def ensure_muted_role(guild: discord.Guild) -> Role:
+async def ensure_muted_role(guild: discord.Guild) -> discord.Role:
     muted = discord.utils.get(guild.roles, name="Muted")
     if muted is None:
         muted = await guild.create_role(name="Muted", permissions=discord.Permissions(send_messages=False), reason="Created Muted role for bot")
@@ -950,7 +925,7 @@ async def leave_test(ctx: commands.Context):
         return
     channel_id, mode, message, autodelete, embed_flag = config
     channel = ctx.guild.get_channel(channel_id)
-    if not isinstance(channel, TextChannel):
+    if not isinstance(channel, discord.TextChannel):
         await ctx.send("Configured leave channel could not be found.")
         return
     sample = message or WELCOME_DEFAULT_MESSAGE
@@ -995,22 +970,19 @@ async def leave_autodelete(ctx: commands.Context, seconds: int):
     await ctx.send(f"Leave messages will now be deleted after {seconds}s." if seconds else "Leave autodelete disabled.")
 
 
-async def create_ticket_channel(interaction: commands.Interaction):
-    config = await get_ticket_config(interaction.guild.id)
+async def create_ticket_for_member(guild: discord.Guild, member: discord.Member) -> Optional[discord.TextChannel]:
+    config = await get_ticket_config(guild.id)
     if not config:
-        await interaction.response.send_message("Ticket system is not configured. Run `>ticket setup` first.", ephemeral=True)
-        return
+        return None
     category_id, role_id = config
-    category = interaction.guild.get_channel(category_id)
-    support_role = interaction.guild.get_role(role_id)
-    if category is None or support_role is None:
-        await interaction.response.send_message("Ticket configuration is incomplete. Please rerun setup.", ephemeral=True)
-        return
-    count = await get_open_ticket_count(interaction.guild.id, interaction.user.id)
+    category = guild.get_channel(category_id)
+    support_role = guild.get_role(role_id)
+    if not isinstance(category, discord.CategoryChannel) or support_role is None:
+        return None
+    count = await get_open_ticket_count(guild.id, member.id)
     if count >= 3:
-        await interaction.response.send_message("You already have 3 open tickets. Close one before creating another.", ephemeral=True)
-        return
-    safe_name = re.sub(r"[^a-z0-9-]", "", interaction.user.name.lower())[:80]
+        return None
+    safe_name = re.sub(r"[^a-z0-9-]", "", member.name.lower())[:80]
     ticket_name = f"ticket-{safe_name}"
     existing_names = {c.name for c in category.channels}
     suffix = 1
@@ -1018,19 +990,18 @@ async def create_ticket_channel(interaction: commands.Interaction):
         ticket_name = f"ticket-{safe_name}-{suffix}"
         suffix += 1
     overwrites = {
-        interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
-        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        member: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
         support_role: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-        interaction.guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
     }
     channel = await category.create_text_channel(ticket_name, overwrites=overwrites, reason="Ticket created")
-    await add_open_ticket(interaction.guild.id, interaction.user.id, channel.id)
-    await interaction.response.send_message(f"Ticket created: {channel.mention}", ephemeral=True)
-    await channel.send(f"Welcome {interaction.user.mention}! Our support team will be with you shortly.")
+    await add_open_ticket(guild.id, member.id, channel.id)
+    await channel.send(f"Welcome {member.mention}! Our support team will be with you shortly.")
+    return channel
 
 
 @bot.group(name="ticket", invoke_without_command=True)
-@admin_only()
 async def ticket(ctx: commands.Context):
     await ctx.send("Available ticket commands: setup, panel, create, close")
 
@@ -1054,7 +1025,7 @@ async def ticket_panel(ctx: commands.Context):
         description="Click the button below to create a new ticket. A member of the support team will assist you.",
         color=discord.Color.red(),
     )
-    await ctx.send(embed=embed, view=TicketPanelView(ctx.guild))
+    await ctx.send(embed=embed, view=TicketPanelView())
 
 
 @ticket.command(name="create")
@@ -1062,8 +1033,11 @@ async def ticket_create(ctx: commands.Context):
     if ctx.guild is None:
         await ctx.send("Tickets can only be created inside a server.")
         return
-    interactions = types.SimpleNamespace(guild=ctx.guild, user=ctx.author, response=ctx)
-    await create_ticket_channel(ctx)
+    channel = await create_ticket_for_member(ctx.guild, ctx.author)
+    if channel:
+        await ctx.send(f"Ticket created: {channel.mention}")
+    else:
+        await ctx.send("Unable to create a ticket right now. Ensure the ticket system is configured and you have fewer than 3 open tickets.")
 
 
 @ticket.command(name="close")
@@ -1135,11 +1109,11 @@ async def tiktok_test(ctx: commands.Context):
     channel_id, username, role_id, interval, last_video_id, enabled, _ = config
     channel = ctx.guild.get_channel(channel_id)
     role = ctx.guild.get_role(role_id)
-    if not isinstance(channel, TextChannel):
+    if not isinstance(channel, discord.TextChannel):
         await ctx.send("TikTok notification channel is not set or cannot be found.")
         return
-    text = f"TikTok test notification for `{username or 'username not set'}`. {role.mention if role else ''}".strip()
-    await channel.send(text)
+    mention_text = f"{role.mention} " if role else ""
+    await channel.send(f"{mention_text}TikTok test notification for `{username or 'username not set'}`.")
     await ctx.send("Sent a TikTok test message.")
 
 
@@ -1216,8 +1190,8 @@ async def roleperms_refresh(ctx: commands.Context):
 @roleperms.command(name="add")
 @admin_only()
 async def roleperms_add(ctx: commands.Context, role: discord.Role, command: str):
-    normalized = (await normalize_command_name(command)).lower()
-    if normalized not in ALL_MOD_COMMANDS and normalized not in {"ticket_close"}:
+    normalized = await normalize_command_name(command)
+    if normalized not in ALL_MOD_COMMANDS and normalized != "ticket_close":
         await ctx.send(f"Unknown command permission: {command}.")
         return
     await upsert_role_permission(ctx.guild.id, role.name, normalized, custom=1)
@@ -1227,7 +1201,7 @@ async def roleperms_add(ctx: commands.Context, role: discord.Role, command: str)
 @roleperms.command(name="remove")
 @admin_only()
 async def roleperms_remove(ctx: commands.Context, role: discord.Role, command: str):
-    normalized = (await normalize_command_name(command)).lower()
+    normalized = await normalize_command_name(command)
     await remove_role_permission_db(ctx.guild.id, role.name, normalized)
     await ctx.send(f"Removed permission `{normalized}` from {role.name}.")
 
@@ -1241,7 +1215,7 @@ async def roleperms_list(ctx: commands.Context):
         return
     embed = Embed(title="Role Permission List", color=discord.Color.red())
     permissions = {}
-    for role_name, command, custom in rows:
+    for role_name, command, _custom in rows:
         permissions.setdefault(role_name, []).append(command)
     for role_name, commands_list in permissions.items():
         embed.add_field(name=role_name, value=", ".join(sorted(set(commands_list))), inline=False)
@@ -1285,7 +1259,7 @@ async def tiktok_watcher():
                 continue
             channel = guild.get_channel(channel_id)
             role = guild.get_role(role_id) if role_id else None
-            if not isinstance(channel, TextChannel):
+            if not isinstance(channel, discord.TextChannel):
                 continue
             new_video = await fetch_latest_tiktok_video(session, username)
             await execute_sql(TIKTOK_DB, "UPDATE tiktok_config SET last_checked = ? WHERE guild_id = ?", (now_ts, guild_id))
