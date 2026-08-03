@@ -1,2 +1,1 @@
-worker: python CodeX.py
-web: uvicorn api.main:app --host 0.0.0.0 --port $PORT
+worker: python bot/CodeX.py

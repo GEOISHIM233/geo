@@ -11,21 +11,10 @@
     {
       "name": "bot",
       "type": "process",
-      "start": "python CodeX.py",
+      "start": "python bot/CodeX.py",
       "env": {
         "DISCORD_TOKEN": "$DISCORD_TOKEN",
         "OPENROUTER_API_KEY": "$OPENROUTER_API_KEY",
-        "DATABASE_URL": "$DATABASE_URL",
-        "API_ENABLED": "true",
-        "API_PORT": "8000"
-      }
-    },
-    {
-      "name": "api",
-      "type": "web",
-      "start": "uvicorn api.main:app --host 0.0.0.0 --port $PORT",
-      "env": {
-        "PORT": "$PORT",
         "DATABASE_URL": "$DATABASE_URL"
       }
     }
