@@ -415,7 +415,7 @@ async def format_leave_message(member: discord.Member, message_template: str) ->
     )
 
 
-class ConfirmationView(commands.View):
+class ConfirmationView(discord.ui.View):
     def __init__(self, author: discord.Member, action: str):
         super().__init__(timeout=30)
         self.author = author
@@ -440,7 +440,7 @@ class ConfirmationView(commands.View):
         await interaction.response.edit_message(content="Action cancelled.", view=None)
 
 
-class LeaveSetupView(commands.View):
+class LeaveSetupView(discord.ui.View):
     def __init__(self, author: discord.Member):
         super().__init__(timeout=120)
         self.author = author
@@ -492,7 +492,7 @@ class LeaveSetupView(commands.View):
         )
 
 
-class TicketSetupView(commands.View):
+class TicketSetupView(discord.ui.View):
     def __init__(self, author: discord.Member):
         super().__init__(timeout=120)
         self.author = author
@@ -532,7 +532,7 @@ class TicketSetupView(commands.View):
         )
 
 
-class TikTokSetupView(commands.View):
+class TikTokSetupView(discord.ui.View):
     def __init__(self, author: discord.Member):
         super().__init__(timeout=120)
         self.author = author
@@ -573,7 +573,7 @@ class TikTokSetupView(commands.View):
         )
 
 
-class TicketPanelView(commands.View):
+class TicketPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
