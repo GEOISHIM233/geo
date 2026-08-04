@@ -44,7 +44,7 @@ TRANSCRIPT_EMOJI = ZMODULE
 # --- Constants ---
 if not os.path.exists('db'):
     os.makedirs('db')
-DB_PATH = 'db/ticket.db'
+DB_PATH = 'db/tickets.db'
 MAX_CATEGORIES = 15
 TICKET_LIMIT_PER_USER = 3
 
@@ -113,9 +113,12 @@ class EmbedEditorView(discord.ui.View):
         if thumb_url := self.embed_data.get("thumbnail", {}).get("url"): embed.set_thumbnail(url=thumb_url)
         return embed
 
-    async def start(self, interaction):
-        await interaction.response.send_message("Use the buttons to customize the panel embed.", embed=self._create_preview_embed(), view=self, ephemeral=True)
-        self.message = await interaction.original_response()
+    async def start(self, target):
+        if hasattr(target, "response"):
+            await target.response.send_message("Use the buttons to customize the panel embed.", embed=self._create_preview_embed(), view=self, ephemeral=True)
+            self.message = await target.original_response()
+        else:
+            self.message = await target.send(embed=self._create_preview_embed(), view=self)
 
     async def _prompt(self, inter, prompt):
         await inter.response.send_message(prompt, ephemeral=True)
@@ -337,8 +340,14 @@ class TicketCog(commands.Cog, name="Ticket System"):
     @commands.has_permissions(manage_guild=True)
     @app_commands.describe(style="The style of the ticket creation panel.", channel="The channel where the ticket panel will be sent.")
     @app_commands.choices(style=[app_commands.Choice(name="Dropdown Menu", value="dropdown"), app_commands.Choice(name="Buttons", value="button")])
-    async def setup(self, ctx, style: app_commands.Choice[str], channel: discord.TextChannel):
-        await EmbedEditorView(self, ctx, channel, style.value).start(ctx.interaction)
+    async def setup(self, ctx, style: str, channel: discord.TextChannel):
+        style_value = style.lower()
+        if style_value not in ("dropdown", "button", "buttons"):
+            style_value = "button"
+        if style_value == "buttons":
+            style_value = "button"
+        target = ctx.interaction if getattr(ctx, 'interaction', None) else ctx
+        await EmbedEditorView(self, ctx, channel, style_value).start(target)
 
     @ticket.command(name="close", description="Close the current ticket channel.")
     @commands.has_permissions(manage_channels=True)

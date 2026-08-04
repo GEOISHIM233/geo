@@ -1,4 +1,4 @@
-# ╔══════════════════════════════════════════════════════════════════════════╗
+# ╔══════════════════════════════════════════════════════════════════╗
 # ║                                                                  ║
 # ║   ░█▀▀░█▀█░█▀▄░█▀▀░█░█   ░█▀▄░█▀▀░█░█░█▀▀                     ║
 # ║   ░█░░░█░█░█░█░█▀▀░▄▀▄   ░█░█░█▀▀░▀▄▀░▀▀█                     ║
@@ -90,6 +90,7 @@ def updateignore(guild_id, data):
 
 
 
+
 async def getConfig(guildID):
   async with aiosqlite.connect('db/prefix.db') as db:
     async with db.execute("SELECT prefix FROM prefixes WHERE guild_id = ?", (guildID,)) as cursor:
@@ -114,7 +115,6 @@ async def updateConfig(guildID, data):
 def restart_program():
   python = sys.executable
   os.execl(python, python, *sys.argv)
-
 
 
 def blacklist_check():

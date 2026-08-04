@@ -10,35 +10,6 @@ class Moderation(commands.Cog):
         self.bot = bot
         self.color = 0xFF0000
 
-    # ----- PURGE -----
-    @commands.command(name="purge", aliases=["clean"])
-    @commands.has_permissions(manage_messages=True)
-    async def purge(self, ctx: Context, amount: int = None):
-        if amount is None:
-            amount = 10000
-        if amount < 1:
-            embed = discord.Embed(title="❌ Invalid", description="At least 1 message.", color=self.color)
-            return await ctx.send(embed=embed)
-        if amount > 10000:
-            embed = discord.Embed(title="❌ Too Many", description="Max 10,000.", color=self.color)
-            return await ctx.send(embed=embed)
-
-        warning = None
-        if amount >= 1000:
-            warning = await ctx.send(f"⚠️ Deleting **{amount}** messages...")
-
-        deleted = await ctx.channel.purge(limit=amount + 1)
-        if warning:
-            await warning.delete()
-
-        embed = discord.Embed(title="✅ Cleared", description=f"Deleted **{len(deleted)-1}** messages.", color=discord.Color.green())
-        await ctx.send(embed=embed, delete_after=5)
-
-    @purge.error
-    async def purge_error(self, ctx, error):
-        if isinstance(error, commands.MissingPermissions):
-            embed = discord.Embed(title="❌ Permission", description="You need **Manage Messages**.", color=self.color)
-            await ctx.send(embed=embed)
 
     # ----- LOCKALL -----
     @commands.hybrid_command(name="lockall", help="Lock all channels.")

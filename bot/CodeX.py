@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 import uvicorn
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 DB_DIR = BASE_DIR / "db"
 BOT_DB = DB_DIR / "bot.db"
 LEAVE_DB = DB_DIR / "leave.db"
@@ -27,6 +27,7 @@ ROLEPERMS_DB = DB_DIR / "roleperms.db"
 
 DEFAULT_PREFIX = os.getenv("BOT_PREFIX", ">").strip() or ">"
 BOT_NAME = os.getenv("BOT_NAME", "Bezms Bot")
+BOT_FOOTER = "Bezms Bot"
 OWNER_IDS = [int(x.strip()) for x in os.getenv("OWNER_IDS", "").split(",") if x.strip().isdigit()]
 API_ENABLED = os.getenv("API_ENABLED", "false").lower() in ("true", "1", "yes")
 API_PORT = int(os.getenv("API_PORT", "8000"))
@@ -601,6 +602,14 @@ def admin_only():
     return commands.check(predicate)
 
 
+def owner_only():
+    async def predicate(ctx: commands.Context) -> bool:
+        if ctx.author.id in OWNER_IDS:
+            return True
+        raise commands.NotOwner("Only the bot owner can use this command.")
+    return commands.check(predicate)
+
+
 def permission_required(command_name: str):
     async def predicate(ctx: commands.Context) -> bool:
         if ctx.guild is None:
@@ -617,6 +626,8 @@ def permission_required(command_name: str):
 @bot.check
 async def enforce_bot_channel(ctx: commands.Context) -> bool:
     if ctx.guild is None:
+        return True
+    if ctx.author.id in OWNER_IDS:
         return True
     channel_id = await get_bot_channel(ctx.guild.id)
     if channel_id is None:
@@ -660,6 +671,7 @@ async def on_member_remove(member: discord.Member):
     text = await format_leave_message(member, message or WELCOME_DEFAULT_MESSAGE)
     if embed_flag:
         embed = Embed(title="Member Left", description=text, color=discord.Color.red())
+        embed.set_footer(text=BOT_FOOTER)
         leave_message = await channel.send(embed=embed)
     else:
         leave_message = await channel.send(text)
@@ -679,6 +691,7 @@ async def help_command(ctx: commands.Context):
         ),
         color=discord.Color.red(),
     )
+    embed.set_footer(text=BOT_FOOTER)
     embed.add_field(
         name="Moderation",
         value=(
@@ -836,6 +849,7 @@ async def gtfo(ctx: commands.Context, member: discord.Member, *, reason: Optiona
         color=discord.Color.red(),
     )
     embed.add_field(name="Reason", value=reason, inline=False)
+    embed.set_footer(text=BOT_FOOTER)
     await ctx.send(embed=embed)
 
 
@@ -931,7 +945,9 @@ async def leave_test(ctx: commands.Context):
     sample = message or WELCOME_DEFAULT_MESSAGE
     text = sample.replace("{user}", ctx.author.mention).replace("{server}", ctx.guild.name).replace("{member_count}", str(ctx.guild.member_count))
     if embed_flag:
-        await channel.send(embed=Embed(title="Goodbye Test", description=text, color=discord.Color.red()))
+        embed = Embed(title="Goodbye Test", description=text, color=discord.Color.red())
+        embed.set_footer(text=BOT_FOOTER)
+        await channel.send(embed=embed)
     else:
         await channel.send(text)
     await ctx.send(f"Sent a test leave message to {channel.mention}.")
@@ -952,6 +968,7 @@ async def leave_config(ctx: commands.Context):
     embed.add_field(name="Embed", value="Yes" if embed_flag else "No", inline=False)
     embed.add_field(name="Autodelete", value=f"{autodelete}s" if autodelete else "Disabled", inline=False)
     embed.add_field(name="Message", value=message or WELCOME_DEFAULT_MESSAGE, inline=False)
+    embed.set_footer(text=BOT_FOOTER)
     await ctx.send(embed=embed)
 
 
@@ -1025,6 +1042,7 @@ async def ticket_panel(ctx: commands.Context):
         description="Click the button below to create a new ticket. A member of the support team will assist you.",
         color=discord.Color.red(),
     )
+    embed.set_footer(text=BOT_FOOTER)
     await ctx.send(embed=embed, view=TicketPanelView())
 
 
@@ -1134,6 +1152,7 @@ async def tiktok_status(ctx: commands.Context):
     embed.add_field(name="Interval", value=f"{interval} minutes", inline=False)
     embed.add_field(name="Enabled", value="Yes" if enabled else "No", inline=False)
     embed.add_field(name="Last Video ID", value=last_video_id or "None", inline=False)
+    embed.set_footer(text=BOT_FOOTER)
     await ctx.send(embed=embed)
 
 
@@ -1145,27 +1164,27 @@ async def tiktok_disable(ctx: commands.Context):
 
 
 @bot.group(name="botchannel", invoke_without_command=True)
-@admin_only()
+@owner_only()
 async def botchannel(ctx: commands.Context):
     await ctx.send("Use `botchannel set #channel`, `botchannel remove`, or `botchannel status`.")
 
 
 @botchannel.command(name="set")
-@admin_only()
+@owner_only()
 async def botchannel_set(ctx: commands.Context, channel: discord.TextChannel):
     await set_bot_channel(ctx.guild.id, channel.id)
     await ctx.send(f"Bot commands are now restricted to {channel.mention}.")
 
 
 @botchannel.command(name="remove")
-@admin_only()
+@owner_only()
 async def botchannel_remove(ctx: commands.Context):
     await remove_bot_channel(ctx.guild.id)
     await ctx.send("Bot channel restriction has been removed.")
 
 
 @botchannel.command(name="status")
-@admin_only()
+@owner_only()
 async def botchannel_status(ctx: commands.Context):
     channel_id = await get_bot_channel(ctx.guild.id)
     if channel_id:
@@ -1219,6 +1238,7 @@ async def roleperms_list(ctx: commands.Context):
         permissions.setdefault(role_name, []).append(command)
     for role_name, commands_list in permissions.items():
         embed.add_field(name=role_name, value=", ".join(sorted(set(commands_list))), inline=False)
+    embed.set_footer(text=BOT_FOOTER)
     await ctx.send(embed=embed)
 
 

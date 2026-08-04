@@ -191,7 +191,7 @@ async def get_guild_tickets(guild_id: int):
     """
     Retrieves the ticket system configuration for a specific guild.
     """
-    db = await db_manager.get_connection('db/ticket.db')
+    db = await db_manager.get_connection('db/tickets.db')
     
     # Get basic config
     cursor = await db.execute(
@@ -257,7 +257,7 @@ async def patch_guild_tickets(guild_id: int, data: TicketUpdate):
     """
     Updates the ticket system configuration for a specific guild.
     """
-    db = await db_manager.get_connection('db/ticket.db')
+    db = await db_manager.get_connection('db/tickets.db')
     
     # Initialize config row if not exists
     cursor = await db.execute("SELECT guild_id FROM guild_configs WHERE guild_id = ?", (guild_id,))
