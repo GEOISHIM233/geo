@@ -3,6 +3,61 @@ from discord.ext import commands
 from discord.ui import Select, View
 import aiosqlite
 import asyncio
+from typing import Optional
+from contextlib import suppress
+
+class LeaveSetupView(discord.ui.View):
+    class LeaveChannelSelect(discord.ui.ChannelSelect):
+        def __init__(self, parent_view: "LeaveSetupView"):
+            super().__init__(placeholder="Select a goodbye channel", channel_types=[discord.ChannelType.text], min_values=1, max_values=1)
+            self.parent_view = parent_view
+
+        async def callback(self, interaction: discord.Interaction):
+            self.parent_view.selected_channel = self.values[0]
+            await interaction.response.send_message(
+                f"Selected {self.parent_view.selected_channel.mention} for goodbye messages.", ephemeral=True
+            )
+
+    def __init__(self, cog, author: discord.Member):
+        super().__init__(timeout=120)
+        self.cog = cog
+        self.author = author
+        self.selected_channel: Optional[discord.TextChannel] = None
+        self.mode = "simple"
+        self.add_item(self.LeaveChannelSelect(self))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user != self.author:
+            await interaction.response.send_message("Only the command author can configure the leave system.", ephemeral=True)
+            return False
+        return True
+
+    @discord.ui.button(label="Simple Mode", style=discord.ButtonStyle.secondary)
+    async def simple_mode(self, button: discord.ui.Button, interaction: discord.Interaction):
+        self.mode = "simple"
+        await interaction.response.send_message("Leave messages will use simple mode.", ephemeral=True)
+
+    @discord.ui.button(label="Embed Mode", style=discord.ButtonStyle.success)
+    async def embed_mode(self, button: discord.ui.Button, interaction: discord.Interaction):
+        self.mode = "embed"
+        await interaction.response.send_message("Leave messages will use embed mode.", ephemeral=True)
+
+    @discord.ui.button(label="Save", style=discord.ButtonStyle.primary)
+    async def save(self, button: discord.ui.Button, interaction: discord.Interaction):
+        if not self.selected_channel:
+            await interaction.response.send_message("Please choose a channel before saving.", ephemeral=True)
+            return
+        await self.cog.update_leave_config(
+            self.author.guild.id,
+            self.selected_channel.id,
+            self.mode,
+            None,
+            0,
+            self.mode == "embed",
+        )
+        self.stop()
+        await interaction.response.edit_message(content=f"Leave system configured in {self.selected_channel.mention} using {self.mode} mode.", embed=None, view=None)
+
 
 class LeaveSystem(commands.Cog):
     def __init__(self, bot):
@@ -17,126 +72,174 @@ class LeaveSystem(commands.Cog):
                     guild_id INTEGER PRIMARY KEY,
                     channel_id INTEGER,
                     enabled INTEGER DEFAULT 1,
-                    message TEXT
+                    mode TEXT DEFAULT 'simple',
+                    message TEXT,
+                    autodelete INTEGER DEFAULT 0,
+                    embed INTEGER DEFAULT 0
                 )
             ''')
             await db.commit()
 
     async def get_config(self, guild_id):
         async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute('SELECT channel_id, enabled, message FROM leave_config WHERE guild_id = ?', (guild_id,)) as cursor:
+            async with db.execute('SELECT channel_id, enabled, mode, message, autodelete, embed FROM leave_config WHERE guild_id = ?', (guild_id,)) as cursor:
                 row = await cursor.fetchone()
-                return row if row else (None, 1, None)
+                return row if row else (None, 1, "simple", None, 0, 0)
 
-    async def set_config(self, guild_id, channel_id=None, enabled=None, message=None):
+    async def set_config(self, guild_id, channel_id=None, enabled=None, mode=None, message=None, autodelete=None, embed=None):
+        current = await self.get_config(guild_id)
         async with aiosqlite.connect(self.db_path) as db:
-            current = await self.get_config(guild_id)
             if current:
                 await db.execute('''
-                    UPDATE leave_config SET channel_id = ?, enabled = ?, message = ? WHERE guild_id = ?
-                ''', (channel_id if channel_id is not None else current[0],
-                      enabled if enabled is not None else current[1],
-                      message if message is not None else current[2],
-                      guild_id))
+                    INSERT INTO leave_config (guild_id, channel_id, enabled, mode, message, autodelete, embed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id, enabled = excluded.enabled, mode = excluded.mode, message = excluded.message, autodelete = excluded.autodelete, embed = excluded.embed
+                ''', (
+                    guild_id,
+                    channel_id if channel_id is not None else current[0],
+                    enabled if enabled is not None else current[1],
+                    mode if mode is not None else current[2],
+                    message if message is not None else current[3],
+                    autodelete if autodelete is not None else current[4],
+                    1 if (embed if embed is not None else current[5]) else 0,
+                ))
             else:
                 await db.execute('''
-                    INSERT INTO leave_config (guild_id, channel_id, enabled, message)
-                    VALUES (?, ?, ?, ?)
-                ''', (guild_id, channel_id or 0, enabled if enabled is not None else 1, message or ''))
+                    INSERT INTO leave_config (guild_id, channel_id, enabled, mode, message, autodelete, embed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    guild_id,
+                    channel_id or 0,
+                    enabled if enabled is not None else 1,
+                    mode or "simple",
+                    message or "{user} left {server}.",
+                    autodelete if autodelete is not None else 0,
+                    1 if embed else 0,
+                ))
             await db.commit()
+
+    async def format_message(self, member: discord.Member, message: str):
+        if not message:
+            return f"**{member.display_name}** has left {member.guild.name}."
+        return (
+            message.replace("{user}", member.mention)
+            .replace("{server}", member.guild.name)
+            .replace("{member_count}", str(member.guild.member_count))
+        )
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
         guild = member.guild
-        channel_id, enabled, msg = await self.get_config(guild.id)
+        channel_id, enabled, mode, msg, autodelete, embed_flag = await self.get_config(guild.id)
         if not enabled or not channel_id:
             return
         channel = guild.get_channel(channel_id)
-        if not channel:
+        if not isinstance(channel, discord.TextChannel):
             return
 
-        embed = discord.Embed(
-            title="👋 Goodbye!",
-            description=msg.format(user=member.display_name) if msg else f"**{member.display_name}** has left the server.",
-            color=self.color
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        embed.add_field(name="Member", value=f"{member.mention} ({member})", inline=True)
-        embed.add_field(name="ID", value=member.id, inline=True)
-        embed.add_field(name="Joined", value=member.joined_at.strftime("%Y-%m-%d %H:%M") if member.joined_at else "Unknown", inline=True)
-        embed.set_footer(text=f"Member Count: {len(guild.members)}")
-        embed.timestamp = discord.utils.utcnow()
-        await channel.send(embed=embed)
+        text = await self.format_message(member, msg or "{user} left {server}. We now have {member_count} members.")
+        if embed_flag:
+            embed = discord.Embed(title="👋 Goodbye!", description=text, color=self.color)
+            embed.set_footer(text="Bezms Bot")
+            await channel.send(embed=embed)
+            message = await channel.send(embed=embed)
+        else:
+            message = await channel.send(text)
+
+        if autodelete and autodelete > 0:
+            await asyncio.sleep(autodelete)
+            with suppress(discord.NotFound):
+                await message.delete()
 
     @commands.group(name='leave', invoke_without_command=True)
     @commands.has_permissions(administrator=True)
     async def leave(self, ctx):
         embed = discord.Embed(
             title="📋 Leave System",
-            description="Use `>leave setup` to configure.",
-            color=self.color
+            description="Use `>leave setup` to configure goodbye messages.",
+            color=self.color,
         )
-        embed.add_field(name=">leave setup", value="Set the goodbye channel", inline=False)
-        embed.add_field(name=">leave message <text>", value="Set custom message (use {user})", inline=False)
-        embed.add_field(name=">leave toggle", value="Enable/disable", inline=False)
-        embed.add_field(name=">leave status", value="Show config", inline=False)
+        embed.add_field(name=">leave setup", value="Interactive setup wizard for goodbye messages", inline=False)
+        embed.add_field(name=">leave reset", value="Reset all leave configuration", inline=False)
+        embed.add_field(name=">leave test", value="Send a test goodbye message", inline=False)
+        embed.add_field(name=">leave config", value="Show current leave configuration", inline=False)
+        embed.add_field(name=">leave edit <message>", value="Edit the goodbye message using {user}, {server}, {member_count}", inline=False)
+        embed.add_field(name=">leave autodelete <seconds>", value="Automatically delete goodbye messages after a time", inline=False)
+        embed.set_footer(text="Bezms Bot")
         await ctx.send(embed=embed)
 
     @leave.command(name='setup')
     @commands.has_permissions(administrator=True)
     async def leave_setup(self, ctx):
         await self.ensure_db()
-        channels = [c for c in ctx.guild.channels if isinstance(c, discord.TextChannel)]
-        if not channels:
-            return await ctx.send("No text channels found.")
-        
-        select = Select(
-            placeholder="Select channel for goodbye messages...",
-            min_values=1, max_values=1,
-            options=[discord.SelectOption(label=ch.name[:100], value=str(ch.id)) for ch in channels[:25]]
+        if not ctx.guild:
+            return await ctx.send("This command must be used in a server.")
+        view = LeaveSetupView(self, ctx.author)
+        await ctx.send(
+            "Select a goodbye channel and mode, then click Save.",
+            view=view,
         )
-        async def select_callback(interaction):
-            if interaction.user != ctx.author:
-                return await interaction.response.send_message("❌ Not for you.", ephemeral=True)
-            await self.set_config(ctx.guild.id, channel_id=int(select.values[0]), enabled=1)
-            embed = discord.Embed(title="✅ Goodbye Channel Set", description=f"Messages will go to <#{select.values[0]}>", color=discord.Color.green())
-            await interaction.response.edit_message(embed=embed, view=None)
-        select.callback = select_callback
 
-        view = View()
-        view.add_item(select)
-        embed = discord.Embed(title="🛠️ Leave System Setup", description="Select a channel:", color=self.color)
-        await ctx.send(embed=embed, view=view)
-
-    @leave.command(name='message')
+    @leave.command(name='reset')
     @commands.has_permissions(administrator=True)
-    async def leave_message(self, ctx, *, message: str):
+    async def leave_reset(self, ctx):
+        await self.ensure_db()
+        await self.set_config(ctx.guild.id, channel_id=0, enabled=0, mode="simple", message="{user} left {server}.", autodelete=0, embed=0)
+        await ctx.send("✅ Leave system configuration has been reset.")
+
+    @leave.command(name='test')
+    @commands.has_permissions(administrator=True)
+    async def leave_test(self, ctx):
+        await self.ensure_db()
+        channel_id, enabled, mode, message, autodelete, embed_flag = await self.get_config(ctx.guild.id)
+        if not enabled or not channel_id:
+            return await ctx.send("Leave system is not configured yet.")
+
+        channel = ctx.guild.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            return await ctx.send("Configured goodbye channel could not be found.")
+
+        text = await self.format_message(ctx.author, message or "{user} left {server}. We now have {member_count} members.")
+        if embed_flag:
+            embed = discord.Embed(title="Goodbye Test", description=text, color=self.color)
+            embed.set_footer(text="Bezms Bot")
+            await channel.send(embed=embed)
+        else:
+            await channel.send(text)
+        await ctx.send(f"Sent a test goodbye message to {channel.mention}.")
+
+    @leave.command(name='config')
+    @commands.has_permissions(administrator=True)
+    async def leave_config(self, ctx):
+        await self.ensure_db()
+        channel_id, enabled, mode, message, autodelete, embed_flag = await self.get_config(ctx.guild.id)
+        embed = discord.Embed(title="Leave System Configuration", color=self.color)
+        embed.add_field(name="Channel", value=f"<#{channel_id}>" if channel_id else "Not set", inline=False)
+        embed.add_field(name="Enabled", value="✅" if enabled else "❌", inline=False)
+        embed.add_field(name="Mode", value=mode or "simple", inline=False)
+        embed.add_field(name="Embed", value="Yes" if embed_flag else "No", inline=False)
+        embed.add_field(name="Autodelete", value=f"{autodelete}s" if autodelete else "Disabled", inline=False)
+        embed.add_field(name="Message", value=message or "{user} left {server}.", inline=False)
+        embed.set_footer(text="Bezms Bot")
+        await ctx.send(embed=embed)
+
+    @leave.command(name='edit')
+    @commands.has_permissions(administrator=True)
+    async def leave_edit(self, ctx, *, message: str):
         await self.ensure_db()
         await self.set_config(ctx.guild.id, message=message)
-        embed = discord.Embed(title="✅ Message Set", description=f"`{message}`", color=discord.Color.green())
-        await ctx.send(embed=embed)
+        await ctx.send("✅ Leave message updated.")
 
-    @leave.command(name='toggle')
+    @leave.command(name='autodelete')
     @commands.has_permissions(administrator=True)
-    async def leave_toggle(self, ctx):
+    async def leave_autodelete(self, ctx, seconds: int):
+        seconds = max(0, seconds)
         await self.ensure_db()
-        _, enabled, _ = await self.get_config(ctx.guild.id)
-        new_state = 0 if enabled else 1
-        await self.set_config(ctx.guild.id, enabled=new_state)
-        embed = discord.Embed(title="✅ Toggled", description=f"Goodbye messages are now **{'enabled' if new_state else 'disabled'}**", color=discord.Color.green() if new_state else discord.Color.orange())
-        await ctx.send(embed=embed)
+        await self.set_config(ctx.guild.id, autodelete=seconds)
+        await ctx.send(f"✅ Leave messages will be deleted after {seconds}s." if seconds else "Leave autodelete disabled.")
 
-    @leave.command(name='status')
-    @commands.has_permissions(administrator=True)
-    async def leave_status(self, ctx):
-        await self.ensure_db()
-        channel_id, enabled, msg = await self.get_config(ctx.guild.id)
-        if not channel_id or not enabled:
-            embed = discord.Embed(title="ℹ️ Status", description="Disabled. Use `>leave setup`.", color=discord.Color.blue())
-        else:
-            channel = ctx.guild.get_channel(channel_id)
-            embed = discord.Embed(title="ℹ️ Status", description=f"**Channel:** {channel.mention if channel else 'Deleted'}\n**Enabled:** ✅\n**Message:** {msg if msg else 'Default'}", color=discord.Color.green())
-        await ctx.send(embed=embed)
+    async def update_leave_config(self, guild_id: int, channel_id: int, mode: str, message: str, autodelete: int, embed: bool):
+        await self.set_config(guild_id, channel_id=channel_id, mode=mode, message=message, autodelete=autodelete, embed=embed)
 
     @commands.command(name='gtfo', aliases=['yeet'])
     @commands.has_permissions(kick_members=True)
