@@ -1,4 +1,4 @@
-# ╔══════════════════════════════════════════════════════════════════╗
+# ╔══════════════════════════════════════════════════════════════════════════╗
 # ║                                                                  ║
 # ║   ░█▀▀░█▀█░█▀▄░█▀▀░█░█   ░█▀▄░█▀▀░█░█░█▀▀                     ║
 # ║   ░█░░░█░█░█░█░█▀▀░▄▀▄   ░█░█░█▀▀░▀▄▀░▀▀█                     ║
@@ -10,10 +10,10 @@
 # ║   youtube  ──  https://youtube.com/@CodeXDevs                   ║
 # ║   github   ──  https://github.com/RayExo                        ║
 # ║                                                                  ║
-# ╚══════════════════════════════════════════════════════════════════╝
+# ╚══════════════════════════════════════════════════════════╝
 
 import discord
-from utils.emoji import ARROWRED, BOOST, CAST, GAMES, LEVEL_UP, LOADINGRED, LOCK, MESSAGE, MINECRAFT, MUSIC, NEW, PIN, SEED, STAR, SWORD, SYSTEM, THUNDER, TICKET, WIFI, ZAI, ZARROW, ZBAN, ZBOT, ZCIRCLE, ZCIRCLE_ALT1, ZCLOUD, ZCOUNTING, ZMODULE, ZPEOPLE, ZROCKET, ZSAFE, ZTADA, ZUNMUTE, ZWRENCH
+from utils.emoji import ARROWRED, BOOST, CAST, GAMES, LEVEL_UP, LOADINGRED, LOCK, MESSAGE, MINECRAFT, MUSIC, NEW, PIN, SEED, STAR, SWORD, SYSTEM, THUNDER, TICKET, WIFI, ZAI, ZARROW, ZBAN, ZBOT, ZCIRCLE, ZCIRCLE_ALT1, ZCLOUD, ZCOUNTING, ZMODULE, ZCPEOPLE, ZPEOPLE, ZROCKET, ZSAFE, ZTADA, ZUNMUTE, ZWRENCH
 from discord.ext import commands
 from discord import app_commands, Interaction
 from difflib import get_close_matches
@@ -95,73 +95,33 @@ class HelpCommand(commands.HelpCommand):
       await self.send_ignore_message(ctx, "command")
       return
 
-    # Show loading message
-    loading_embed = CV2(f"{LOADINGRED} Loading help Menu...")
-    loading_msg = await ctx.reply(view=loading_embed)
-
-    # Wait 2 seconds
-    await asyncio.sleep(2)
-
-    # Delete loading message
-    with suppress(discord.NotFound):
-      await loading_msg.delete()
-
     data = await getConfig(self.context.guild.id)
     prefix = data["prefix"]
     filtered = await self.filter_commands(self.context.bot.walk_commands(), sort=True)
 
-    embed = CV2Embed(
-        description=(
-         f"**{ARROWRED} __Start {BotName} Today__**\n"        
-         f"**{ZARROW} Type {prefix}antinuke enable**\n"
-         f"**{ZARROW} Server Prefix:** `{prefix}`\n"
-         f"**{ZARROW} Total Commands:** `{len(set(self.context.bot.walk_commands()))}`\n"),         
-        color=0xFF0000)
-    
-    embed.add_field(
-        name=f"{ZCLOUD} Main Features",
-        value=f">>> \n {ZSAFE} `»` Security\n" 
-              f" {ZBOT} `»` Automoderation\n"
-              f" {ZWRENCH} `»` Utility\n" 
-              f" {MUSIC} `»` Music\n"
-              f" {WIFI} `»` Autoreact & responder\n"
-              f" {SWORD} `»` Moderation\n"
-              f" {ZPEOPLE} `»` Autorole & Invc\n"
-              f" {ZROCKET} `»` Fun\n"
-              f" {GAMES} `»` Games\n" 
-              f" {ZBAN} `»` Ignore Channels\n"
-              f" {WIFI} `»` Server\n"
-              f" {ZUNMUTE} `»` Voice\n"
-              f" {SEED} `»` Welcomer\n"  
-              f" {ZTADA} `»` Giveaway\n"
-              f" {TICKET} `»` Ticket {NEW}\n"
-              f" {ZPEOPLE} `»` Invite Tracker {NEW}\n"
-    )
-    
-    embed.add_field(
-        name=f" {ZMODULE} Extra Features",
-        value=f">>> \n {CAST} `»` Advance Logging\n"
-              f" {STAR} `»` Vanityroles\n"
-              f" {ZCOUNTING} `»` Counting {NEW}\n"
-              f" {SYSTEM} `»` J2C {NEW}\n"
-              f" {ZAI} `»` AI {NEW}\n"
-              f" {BOOST} `»` Boost {NEW}\n"
-              f" {LEVEL_UP} `»` Leveling {NEW}\n"
-              f" {PIN} `»` Sticky {NEW}\n"
-              f" {THUNDER} `»` Verification {NEW}\n"
-              f" {LOCK} `»` Encryption {NEW}\n" 
-              f" {MINECRAFT} `»` Minecraft {NEW}\n"
-              f" {MESSAGE} `»` Joindm {NEW}\n"
-              f" {ZCIRCLE} `»` Birthday {NEW}\n"
-              f" {ZCIRCLE_ALT1} `»` Customrole\n"           
+    categories = {}
+    for command in filtered:
+      category = command.cog_name or "General"
+      categories.setdefault(category, []).append(command)
+
+    embed = discord.Embed(
+      title=f"{BotName} Help",
+      description=(
+        f"**{BotName}** prefix: `{prefix}`\n"
+        f"Use `{prefix}help <command>` for command details."
+      ),
+      color=0xFF0000,
     )
 
-    embed.set_footer(
-      text=f"Requested By {self.context.author} | [Support](https://discord.gg/codexdev)",
-    )
-    
-    view = vhelp.View(mapping=mapping, ctx=self.context, homeembed=embed, ui=2)
-    await ctx.reply(view=view)
+    for category, commands_list in categories.items():
+      embed.add_field(
+        name=f"{category}",
+        value=", ".join(f"`{cmd.name}`" for cmd in commands_list[:20]) or "No commands",
+        inline=False,
+      )
+
+    embed.set_footer(text="Bezms Bot")
+    await ctx.reply(embed=embed)
 
   async def send_command_help(self, command):
     ctx = self.context
@@ -224,7 +184,7 @@ class HelpCommand(commands.HelpCommand):
     entries = [
         (
             f"`{self.context.prefix}{cmd.qualified_name}`\n",
-            f"{cmd.short_doc if cmd.short_doc else ''}\n\u200b"
+            f"{cmd.short_doc if cmd.short_doc else ''}\n"
         )
         for cmd in group.commands
       ]
@@ -256,7 +216,7 @@ class HelpCommand(commands.HelpCommand):
     entries = [(
       f"> `{self.context.prefix}{cmd.qualified_name}`",
       f"-# Description : {cmd.short_doc if cmd.short_doc else ''}"
-      f"\n\u200b",
+      f"\n",
     ) for cmd in cog.get_commands()]
     paginator = Paginator(source=FieldPagePaginator(
       entries=entries,

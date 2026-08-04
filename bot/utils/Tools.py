@@ -10,7 +10,7 @@
 # ║   youtube  ──  https://youtube.com/@CodeXDevs                   ║
 # ║   github   ──  https://github.com/RayExo                        ║
 # ║                                                                  ║
-# ╚══════════════════════════════════════════════════════════╝
+# ╚══════════════════════════════════════════════════════════════════╝
 
 import json, sys, os
 import discord

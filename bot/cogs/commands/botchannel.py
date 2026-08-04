@@ -181,6 +181,7 @@ class BotChannel(commands.Cog):
             embed.description = (
                 f"Commands are restricted to {channel.mention if channel else f'`{channel_id}` (channel not found)'}."
             )
+        embed.set_footer(text="Bezms Bot")
         await ctx.send(embed=embed)
 
     @botchannel_set.error
